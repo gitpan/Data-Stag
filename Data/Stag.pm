@@ -1,4 +1,4 @@
-# $Id: Stag.pm,v 1.27 2004/02/05 06:14:08 cmungall Exp $
+# $Id: Stag.pm,v 1.31 2004/06/10 18:30:52 cmungall Exp $
 # -------------------------------------------------------
 #
 # Copyright (C) 2004 Chris Mungall <cjm@fruitfly.org>
@@ -22,7 +22,7 @@ use Data::Stag::Base;
 use XML::Parser::PerlSAX;
 
 use vars qw($VERSION);
-$VERSION="0.05";
+$VERSION="0.06";
 
 @AUTOMETHODS = qw(
                   new
@@ -73,6 +73,8 @@ $VERSION="0.05";
                   getformathandler 
 		  chainhandlers
                   xml  
+                  sxpr
+                  itext
                   hash tree2hash
                   pairs tree2pairs
                   sax tree2sax
@@ -257,6 +259,9 @@ One of the things that marks this module out against other XML modules
 is this emphasis on a B<functional> approach as an obect-oriented or
 procedural approach.
 
+For full information on the stag project, see
+L<http://stag.sourceforge.net>
+
 =head2 PROCEDURAL VS OBJECT-ORIENTED USAGE
 
 Depending on your preference, this module can be used a set of
@@ -285,44 +290,76 @@ Although this module can be used as a general XML tool, it is intended
 primarily as a tool for manipulating hierarchical data using nested
 tag/value pairs.
 
-By using a simpler subset of XML equivalent to a basic data tree
-structure, we can write simpler, cleaner code. This simplicity comes
-at a price - this module is not very suitable for XML with attributes
-or mixed content.
+This module is more suited to dealing with data-oriented documents
+than text-oriented documents.
 
-All attributes are turned into elements. This means that it will not
-round-trip a piece of xml with attributes in it. For some applications
-this is acceptable, for others it is not.
+By using a simpler subset of XML equivalent to a basic data tree
+structure, we can write simpler, cleaner code.
+
+This module is ideally suited to element-only XML (that is, XML
+without attributes or mixed elements).
+
+If you are using attributes or mixed elements, it is useful to know
+what is going on under the hood.
+
+All attributes are turned into elements; they are nested inside an
+element with name B<'@'>.
+
+For example, the following piece of XML
+
+  <foo id="x">
+    <bar>ugh</bar>
+  </foo>
+
+Gets represented internally as
+
+  <foo>
+    <@>
+      <id>x</id>
+    </@>
+    <bar>ugh</bar>
+  </foo>
+
+Of course, this is not valid XML. However, it is just an internal
+representation - when exporting back to XML it will look like normal
+XML with attributes again.
 
 Mixed content cannot be represented in a simple tree format, so this
 is also expanded.
 
 The following piece of XML
 
-  <paragraph id="1">
+  <paragraph id="1" color="green">
     example of <bold>mixed</bold>content
   </paragraph>
 
 gets parsed as if it were actually:
 
   <paragraph>
-    <paragraph-id>1</paragraph-id>
-    <paragraph-text>example of</paragraph-text>
+    <@>
+      <id>1</id>
+      <color>green</color>
+    </@>
+    <.>example of</.>
     <bold>mixed</bold>
-    <paragraph-text>content</paragraph-text>
+    <.>content</.>
   </paragraph>
 
-This module is more suited to dealing with data-oriented documents
-than text-oriented documents.
+When using stag with attribute or mixed attribute xml, you can treat
+B<'@'> and B<'.'> as normal elements
 
-It can also be used as part of a SAX-style event generation / handling
-framework - see L<Data::Stag::BaseHandler>
+=head3 SAX
+
+This module can also be used as part of a SAX-style event generation /
+handling framework - see L<Data::Stag::BaseHandler>
+
+=head3 PERL REPRESENTATION
 
 Because nested arrays are native to perl, we can specify an XML
 datastructure directly in perl without going through multiple object
 calls.
 
-For example, instead of the lengthy
+For example, instead of using L<XML::Writer> for the lengthy
 
   $obj->startTag("record");
   $obj->startTag("field1");
@@ -716,6 +753,17 @@ For example, the following are equivalent.
 This is really just syntactic sugar. The autoloaded methods are not
 checked against any schema, although this may be added in future.
 
+=head1 INDEXING STAG TREES
+
+A stag tree can be indexed as a hash for direct retrieval; see
+L<Data::Stag::HashDB>
+
+This index can be made persistent as a DB file; see
+L<Data::Stag::StagDB>
+
+If you wish to use Stag in conjunction with a relational database, you
+should install L<DBIx::DBStag>
+
 =head1 STAG METHODS
 
 All method calls are also available as procedural subroutine calls;
@@ -886,6 +934,7 @@ The former gets converted into the latter for the internal representation
      Returns: L<Data::Stag::BaseHandler>
      Example: $h = Data::Stag->makehandler(%subs);
      Example: $h = Data::Stag->makehandler("My::FooHandler");
+     Example: $h = Data::Stag->makehandler('xml');
 
 This creates a Stag event handler. The argument is a hash of
 subroutines keyed by element/node name. After each node is fired by
@@ -1642,6 +1691,27 @@ will try and guess the format from the extension if not specified
 
 
 
+=head3 xslt
+
+       Title: xslt
+
+        Args: xslt_file str
+      Return: Node
+     Example: $new_stag = $stag->xslt('mytransform.xsl');
+
+transforms a stag tree using XSLT
+
+=head3 xsltstr
+
+       Title: xsltstr
+
+        Args: xslt_file str
+      Return: str
+     Example: print $stag->xsltstr('mytransform.xsl');
+
+As above, but returns the string of the resulting transform, rather
+than a stag tree
+
 =head3 sax
 
        Title: sax
@@ -1764,10 +1834,6 @@ implementation.
 =head1 WEBSITE
 
 L<http://stag.sourceforge.net>
-
-=head1 WEBSITE
-
-http://stag.sourceforge.net
 
 =head1 AUTHOR
 

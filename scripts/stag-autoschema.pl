@@ -19,6 +19,7 @@ my $debug;
 my $help;
 my $name;
 my $defs;
+my $dtd;
 GetOptions(
            "help|h"=>\$help,
            "parser|format|p=s" => \$parser,
@@ -28,11 +29,14 @@ GetOptions(
            "debug"=>\$debug,
 	   "name|n=s"=>\$name,
 	   "defs"=>\$defs,
+           "dtd"=>\$dtd,
           );
 if ($help) {
     system("perldoc $0");
     exit 0;
 }
+
+$dtd = 1 if $handler eq 'dtd';
 
 #my @hdr = ();
 #if ($name) {
@@ -74,7 +78,12 @@ foreach my $fn (@files) {
 #				     @hdr,
 #				    ]);
 #    $top->set_nesting($s->data);
-    print $s->generate(-fmt=>$handler);
+    if ($dtd) {
+        print $s->dtd;
+    }
+    else {
+        print $s->generate(-fmt=>$handler);
+    }
 }
 
 __END__
@@ -139,9 +148,13 @@ FORMAT is one of xml, sxpr or itext, or the name of a perl module
 
 xml assumed as default
 
+=item -dtd
+
+exports schema as DTD
+
 =item -w|writer FORMAT
 
-FORMAT is one of xml, sxpr or itext, or the name of a perl module
+FORMAT is one of xml, sxpr or itext, or the name of a perl module, OR DTD
 
 The default is sxpr
 
@@ -149,10 +162,6 @@ note that stag schemas exported as xml will be invalid xml, due to the
 use of symbols *, +, ? in the node names
 
 =back
-
-=head1 TODO
-
-add DTD option
 
 =head1 LIMITATIONS
 

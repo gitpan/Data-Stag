@@ -1,4 +1,4 @@
-# $Id: ITextParser.pm,v 1.13 2004/02/05 06:14:08 cmungall Exp $
+# $Id: ITextParser.pm,v 1.14 2004/04/16 00:31:48 cmungall Exp $
 #
 # Copyright (C) 2002 Chris Mungall <cjm@fruitfly.org>
 #
@@ -31,7 +31,7 @@ use strict;
 use base qw(Data::Stag::BaseGenerator Exporter);
 
 use vars qw($VERSION);
-$VERSION="0.05";
+$VERSION="0.06";
 
 sub fmtstr {
     return 'itext';
@@ -70,7 +70,8 @@ sub parse_fh {
 
         my ($indent_txt, $elt) = ($1, $2);
         my $indent = length($indent_txt);
-        if ($elt =~ /^([\w\-\+\?\*]+):\s*(.*)$/s) {
+        if ($elt =~ /^([\w\-\+\?\*]+):\s*(.*)$/s ||
+	    $elt =~ /^([\@\.]):\s*(.*)$/s) {
             $elt = $1;
             my $nu_txt = $2;
 

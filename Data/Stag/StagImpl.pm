@@ -1,4 +1,4 @@
-# $Id: StagImpl.pm,v 1.40 2004/02/05 06:14:08 cmungall Exp $
+# $Id: StagImpl.pm,v 1.49 2004/07/02 17:06:02 cmungall Exp $
 #
 # Author: Chris Mungall <cjm@fruitfly.org>
 #
@@ -30,7 +30,7 @@ use Data::Stag::Util qw(rearrange);
 use base qw(Data::Stag::StagI);
 
 use vars qw($VERSION);
-$VERSION="0.05";
+$VERSION="0.06";
 
 
 sub new {
@@ -338,6 +338,14 @@ sub _gethandlerobj {
     elsif ($fmt =~ /simple/i) {
         $writer = "Data::Stag::Simple";
     }
+    elsif ($fmt =~ /xslt\/(.+)/i) {
+	my $xslt_file = $1;
+        $writer = "Data::Stag::XSLTHandler";
+	load_module($writer);
+	my $w = $writer->new(-file=>$fn, -fh=>$fh);
+	$w->xslt_file($xslt_file);
+	return $w;
+    }
     elsif ($fmt =~ /::/) {
         $writer = $fmt;
     }
@@ -424,7 +432,6 @@ sub chainhandlers {
 
     load_module("Data::Stag::ChainHandler");
     my $handler = Data::Stag::ChainHandler->new;
-    $handler->blocked_event($block);
     $handler->subhandlers([
                            map {
                                if (ref($_)) {
@@ -446,6 +453,14 @@ sub chainhandlers {
                                }
                              } @sh
                           ]);
+    $handler->blocked_event($block);
+
+    # if no explicit blocked events set, then introspect
+    # the subhandlers to see if they declare what they emit
+    if (ref($block) && !@$block) {
+        my @emits = map {$_->CONSUMES} @{$handler->subhandlers};
+        $handler->blocked_event(\@emits);
+    }
     return $handler;
 }
 
@@ -603,32 +618,8 @@ sub _dlist {
 
 sub xml {
     my $tree = shift;
-    my $indent = shift || 0;
-    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isastag($tree);
-    my ($ev, $subtree) = @$tree;
-    return "" unless $ev;
-    if (ref($subtree)) {
-        return 
-          sprintf("%s<$ev>\n%s%s</$ev>\n",
-                  tab($indent++),
-                  join("", map { xml($_, $indent) } @$subtree),
-                  tab($indent-1),
-                 );
-    }
-    else {
-	my $txt = xmlesc($subtree);
-	if (length($txt) > 60 ||
-	    $txt =~ /\n/) {
-	    $txt .= "\n" unless $txt =~ /\n$/s;
-	    $txt = "\n$txt" unless $txt =~ /^\n/;
-	    $txt .= tab($indent);
-	}
-        return
-          sprintf("%s<$ev>%s</$ev>\n",
-                  tab($indent),
-		  $txt
-		 );
-    }
+    my $fn = shift;
+    generate($tree, $fn, 'xml', @_);
 }
 *tree2xml = \&xml;
 
@@ -715,6 +706,32 @@ sub _tree2sax {
     }
     $saxhandler->end_element({Name => $ev});
 }
+
+sub xslt {
+    my $xsltstr = xsltstr(@_);
+    return parse([], 
+                 -str=>$xsltstr,
+                 -format=>'xml');
+}
+
+sub xsltstr {
+    my $tree = shift;
+    my $stag = shift;
+    my $xslt_file = shift;
+    
+    load_module("XML::LibXML");
+    load_module("XML::LibXSLT");
+    my $parser = XML::LibXML->new();
+    my $source = $parser->parse_string($stag->xml);
+    
+    my $xslt = XML::LibXSLT->new();
+    my $styledoc = $parser->parse_file($xslt_file);
+    my $stylesheet = $xslt->parse_stylesheet($styledoc);
+
+    my $results = $stylesheet->transform($source);
+    return $results;
+}
+
 
 sub events {
     my $tree = shift;
@@ -1048,6 +1065,7 @@ sub unset {
     }
 
     my ($ev, $subtree) = @$tree;
+    return unless ref $subtree;
     my @nu_tree = ();
     foreach my $st (@$subtree) {
         my ($ev, $subtree) = @$st;
@@ -1114,10 +1132,19 @@ sub findval {
     else {
         my ($ev, $subtree) = @$tree;
         if (test_eq($ev, $node)) {
+	    my $dataref = \$tree->[1];
+	    if (ref($subtree)) {
+		# check if it is the data node of
+		# an element with attributes
+		my @kids = grep {$_->[0] eq '.'} @$subtree;
+		if (@kids == 1) {
+		    $dataref = \$kids[0]->[1];
+		}
+	    }
             if (defined $replace)  {
-                $tree->[1] = $replace;
+                $$dataref = $replace;
             }
-            return $subtree;
+            return $$dataref;
         }
         return unless ref($subtree);
         @r = map { findval($_, $node, $replace) } @$subtree;
@@ -1171,7 +1198,10 @@ sub get {
     my ($node, @path) = splitpath(shift);
     my $replace = shift;
     confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isastag($tree);
-
+    if (!ref($tree->[1])) {
+        # terminal node - always returns undef
+        return;
+    }
     my @v = ();
     if (@path) {
         @v = map { $_->get(\@path, $replace) } getnode($tree, $node)
@@ -1181,7 +1211,7 @@ sub get {
         my ($top_ev, $children) = @$tree;
         @v = ();
 	if (!ref($children)) {
-	    confess("problem with $node/$top_ev => $children");
+	    confess("problem with $node/$top_ev => $children; cannot call get on terminal node");
 	}
         foreach my $child (@$children) {
             confess unless ref $child;
@@ -1234,6 +1264,9 @@ sub getnode {
     else {
 
         my ($top_ev, $children) = @$tree;
+        if (!ref($children)) {
+            confess("problem: $top_ev => \"$children\" not a tree");
+        }
         foreach my $child (@$children) {
             my ($ev, $subtree) = @$child;
             if (test_eq($ev, $node)) {
@@ -2041,6 +2074,23 @@ sub merge {
 }
 *mergeElements = \&merge;
 
+sub makeattrsnodes {
+    my $tree = shift;
+    return if isterminal($tree);
+    my @attrs = get($tree,'@');
+    if (@attrs) {
+	my @nu = ();
+	foreach (@attrs) {
+	    push(@nu, kids($_));
+	}
+	unset($tree, '@');
+	unshift(@{$tree->[1]},@nu);
+    }
+    my @subnodes = subnodes($tree);
+    makeattrsnodes($_) foreach @subnodes;
+    return;
+}
+
 sub duplicate {
     my $tree = shift;
     load_module('Data::Dumper');
@@ -2251,6 +2301,31 @@ sub autoschema {
     return $nu;
 }
 
+sub dtd {
+    my $tree = shift;
+    my ($name, $subtree) = @$tree;
+    $name =~ s/[\+\?\*]$//;
+    my $is_nt = ref($subtree);
+    my $s;
+    if ($is_nt) {
+        my $s2 = join('', map {dtd($_)} @$subtree);
+        my @subnames = map {$_->[0]} @$subtree;
+        my $S = "(".join('|',@subnames).")";
+        if (@subnames < 2) {
+            $S = "@subnames";
+            if (!@subnames) {
+                $S = 'EMPTY';
+            }
+        }
+
+        $s = "<!-- $name: (node) -->\n<!ELEMENT $name $S>\n$s2";
+    }
+    else {
+        $s = "<!-- $name: ($subtree) -->\n<!ELEMENT $name PCDATA>\n";
+    }
+    $s;
+}
+
 sub genschema {
     my $tree = shift;
     my $parent = shift;
@@ -2360,7 +2435,7 @@ sub _autoschema {
 		if ($lin > 10) {
 		    # too big for an int
 		    # TODO: largeint?
-		    $d = "VARCHAR($lin)";
+		    $d = _mkvarchar($lin);
 		}
 	    }
         }
@@ -2374,13 +2449,15 @@ sub _autoschema {
             my $lin = length($in) || 0;
             if ($d =~ /VARCHAR\((\d+)\)/) {
                 if ($lin > $1) {
-                    $d = "VARCHAR($lin)";
+		    $d = _mkvarchar($lin);
                 }
                 else {
                 }
             }
+            elsif ($d =~ /TEXT/) {
+            }
             else {
-                $d = "VARCHAR($lin)";
+                $d = _mkvarchar($lin);
             }
         }
         $data->{$elt} = $d;
@@ -2389,6 +2466,16 @@ sub _autoschema {
         _autoschema($_, $schema);
     }
     return $schema;
+}
+
+sub _mkvarchar {
+    my $size = shift || 1;
+    # round up to log2
+    my $s2 = 2**(int(log($size) / log(2))+2) -1;
+    if ($s2 > 255) {
+        return 'TEXT';
+    }
+    return "VARCHAR($s2)";
 }
 
 sub AUTOLOAD {

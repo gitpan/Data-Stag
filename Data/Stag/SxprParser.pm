@@ -1,4 +1,4 @@
-# $Id: SxprParser.pm,v 1.13 2004/02/05 06:14:08 cmungall Exp $
+# $Id: SxprParser.pm,v 1.15 2004/05/14 07:26:21 cmungall Exp $
 #
 # Copyright (C) 2002 Chris Mungall <cjm@fruitfly.org>
 #
@@ -34,7 +34,7 @@ use Data::Stag qw(:all);
 use base qw(Data::Stag::BaseGenerator Exporter);
 
 use vars qw($VERSION);
-$VERSION="0.05";
+$VERSION="0.06";
 
 sub fmtstr {
     return 'sxpr';
@@ -49,7 +49,7 @@ sub parse_fh {
 
     my $parsing_has_started;
 
-    my $OPEN = '^\s*\(([\w\-\*\?\+\@]+)\s*';
+    my $OPEN = '^\s*\(([\w\-\*\?\+\@\.]+)\s*';
     my $CLOSE = '(.*)(.)\){1}';
     my $txt;
     my $in;
@@ -89,6 +89,9 @@ sub parse_fh {
                 }
                 if ($in) {
                     $txt = '' unless defined $txt;
+		    if ($line eq ' ') {
+			$line = '';
+		    }
                     $txt .= $line;
                     if (defined($txt)) {
                         $txt =~ s/^\s*\"//;
@@ -125,62 +128,5 @@ sub parse_fh {
     return;
 }
 
-sub sxpr2tree {
-    my $self = shift;
-    my $sxpr = shift;
-
-    my $indent = shift || 0;
-    my $i=0;
-    my @args = ();
-    while ($i < length($sxpr)) {
-        my $c = substr($sxpr, $i, 1);
-        print STDERR "c;$c i=$i\n";
-        $i++;
-        if ($c eq ')') {
-            my $funcnode = shift @args;
-            print STDERR "f = $funcnode->[1]\n";
-#            map {print tree2xml($_)} @args;
-#            return [$funcnode->[1] =>[@args]], $i;
-        }
-        if ($c =~ /\s/) {
-            next;
-        }
-        if ($c eq '(') {
-            my ($tree, $extra) = sxpr2tree(substr($sxpr, $i), $indent+1);
-            push(@args, $tree);
-            $i += $extra;
-            printf STDERR "tail: %s\n", substr($sxpr, $i);
-        }
-        else {
-            # look ahead
-            my $v = "$c";
-            my $p=0;
-            while ($i+$p < length($sxpr)) {
-                my $c = substr($sxpr, $i+$p, 1);
-                if ($c =~ /\s/) {
-                    last;
-                }
-                if ($c eq '(') {
-                    last;
-                }
-                if ($c eq ')') {
-                    last;
-                }
-                $p++;
-                $v.= $c;
-            }
-            $i+=$p;
-            push(@args, [arg=>$v]);
-        }
-    }
-#    map {print tree2xml($_)} @args;
-    map {bless $_,"Node";$_} @args;
-    if (wantarray) {
-        return @args;
-    }
-    
-
-    return;
-}
 
 1;

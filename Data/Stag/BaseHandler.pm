@@ -1,4 +1,4 @@
-# $Id: BaseHandler.pm,v 1.20 2004/02/05 06:14:08 cmungall Exp $
+# $Id: BaseHandler.pm,v 1.25 2004/07/02 17:06:02 cmungall Exp $
 #
 # This  module is maintained by Chris Mungall <cjm@fruitfly.org>
 
@@ -243,8 +243,10 @@ use Carp;
 use Data::Stag;
 
 use vars qw($VERSION);
-$VERSION="0.05";
+$VERSION="0.06";
 
+sub EMITS    { () }
+sub CONSUMES { () }
 
 sub tree {
     my $self = shift;
@@ -291,16 +293,17 @@ sub errhandler {
 sub err_event {
     my $self = shift;
     if (!$self->errhandler) {
-#	$self->errhandler(Data::Stag->getformathandler('xml'));
-#	$self->errhandler->fh(\*STDERR);
+	$self->errhandler(Data::Stag->getformathandler('xml'));
+	$self->errhandler->fh(\*STDERR);
 	
-	my $estag = Data::Stag->new(@_);
-	eval {
-	    confess;
-	};
-	$estag->set_stacktrace($@);
-	print STDERR $estag->xml;
-	exit 1;
+#	my $estag = Data::Stag->new(@_);
+#	eval {
+#	    confess;
+#	};
+#	$estag->set_stacktrace($@);
+#	print STDERR $estag->xml;
+#        print STDERR "NO ERRHANDLER SET\n";
+#	exit 1;
     }
     if (!$self->errhandler->depth) {
 	$self->errhandler->start_event("error_eventset");
@@ -527,6 +530,8 @@ sub end_event {
 
     my @R = ($topnode);   # return
 
+    # check for trapped events; trap_h is a hash keyed by node name
+    # the value is a subroutine to be called at the end of that node
     my $trap_h = $self->trap_h;
     if ($trap_h) {
 	my $trapped_ev = $ev;
@@ -576,6 +581,11 @@ sub end_event {
     }
 
     $self->tree(Data::Stag::stag_nodify($topnode));
+    if (!@$stack) {
+        if ($self->can("end_stag")) {
+            $self->end_stag($self->tree);
+        }
+    }
 
     return @R;
 }
@@ -642,36 +652,35 @@ sub start_element {
     # for any preceeding pcdata
     my $str = $self->{__str};
     if (defined $str) {
+	# mixed attribute text - use element '.'
         $str =~ s/^\s*//;
         $str =~ s/\s*$//;
 	if ($str) {
-	    my $parent = $self->{sax_stack}->[-2];
-	    $self->event("$parent-text", $str) if $str;
+	    $self->event(".", $str) if $str;
 	}
 	$self->{__str} = undef;
     }
 
     $self->start_event($name);
-    foreach my $k (keys %$atts) {
-        $self->event("$name-$k", $atts->{$k});
-	$self->{is_nonterminal_stack}->[-1] = 1;
+    if ($atts && %$atts) {
+	# treat atts same way as SXML
+	$self->start_event('@');
+	foreach my $k (keys %$atts) {
+	    $self->event("$k", $atts->{$k});
+	    $self->{is_nonterminal_stack}->[-1] = 1;
+	}
+	$self->end_event('@');
     }
-#    $self->{Handler}->start_element($element);
-    
+    return $element;
 }
 
 sub characters {
     my ($self, $characters) = @_;
     my $char = $characters->{Data};
-    my $str = $self->{__str};
     if (defined $char) {
-        $str = "" if !defined $str;
-        $str .= $char;
+        $self->{__str} = "" unless defined $self->{__str};
+        $self->{__str} .= $char;
     }
-#    printf STDERR "[%d]", length($self->{__str});
-#    printf STDERR ".";
-    $self->{__str} = $str;
-#    $self->{Handler}->characters($characters);
     return;
 }
 
@@ -686,7 +695,7 @@ sub end_element {
         $str =~ s/\s*$//;
 	if ($str || $str eq '0') {
 	    if ($is_nt) {
-		$self->event($parent . "-text" =>
+		$self->event('.' =>
 			     $str);
 			     
 	    }

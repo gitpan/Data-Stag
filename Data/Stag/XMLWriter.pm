@@ -20,8 +20,29 @@ use base qw(Data::Stag::Writer);
 use Data::Stag::Util qw(rearrange);
 
 use vars qw($VERSION);
-$VERSION="0.05";
+$VERSION="0.06";
 
+sub unclosed {
+    my $self = shift;
+    $self->{_unclosed} = shift if @_;
+    return $self->{_unclosed};
+}
+
+sub in_attr {
+    my $self = shift;
+    $self->{_in_attr} = shift if @_;
+    return $self->{_in_attr};
+}
+
+
+sub ensure_closed {
+    my $self = shift;
+    if ($self->{_unclosed}) {
+	$self->o(">") ;
+	$self->{_unclosed} = 0;
+    }
+    return;
+}
 
 sub fmtstr {
     return 'xml';
@@ -45,6 +66,13 @@ sub o {
     $self->addtext( $o );
 }
 
+sub first_line {
+    my $self = shift;
+    $self->{_first_line} = shift if @_;
+    return $self->{_first_line};
+}
+
+
 sub start_event {
     my $self = shift;
     my $ev = shift;
@@ -53,39 +81,76 @@ sub start_event {
     }
     my $stack = $self->stack;
     if (!@$stack) {
-	$self->o("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+	$self->o($self->first_line || "<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
     }
-    $self->o("\n". $self->indent_txt . "<$ev>");
+
+    if ($ev eq '@') {
+	$self->in_attr(1);
+    }
+    elsif ($ev eq '.') {
+	# pcdata for element with attributes
+	# do nothing
+    }
+    elsif ($self->in_attr) {
+	$self->o(" $ev=");
+    }
+    elsif ($ev eq '') {
+        # ignore null nodes
+    }
+    else {
+	$self->ensure_closed;
+	$self->o("\n". $self->indent_txt . "<$ev");
+	$self->unclosed(1);
+    }
     push(@$stack, $ev);
 }
+
 sub end_event {
     my $self = shift;
     my $ev = shift;
     my $stack = $self->stack;
     my $popped = pop(@$stack);
+    return '' unless $popped;
     if ($ev && $popped ne $ev) {
         warn("uh oh; $ev ne $popped");
     }
     if (!$ev) {
 	$ev = $popped;
     }
-    if ($self->{_nl}) {
-	$self->o("\n" . $self->indent_txt)
+    if ($self->in_attr) {
+	if ($ev eq '@') {
+	    $self->in_attr(0);
+	    $self->ensure_closed;
+	}
     }
-    $self->o("</$ev>");
-    $self->{_nl} = 1;
-    if (!@$stack) {
-	$self->o("\n");
+    elsif ($ev eq '.') {
+	# end of pcdata for element with attributes
+    }
+    else {
+	$self->ensure_closed;
+	if ($self->{_nl}) {
+	    $self->o("\n" . $self->indent_txt)
+	}
+	$self->o("</$ev>");
+	$self->{_nl} = 1;
+	if (!@$stack) {
+	    $self->o("\n");
+	}
     }
     return $ev;
 }
 sub evbody {
     my $self = shift;
     my $body = shift;
-    my $str;
-    $self->{_nl} = 0;
-    $str = xmlesc($body);
-    $self->o($str);
+    my $str= xmlesc($body);
+    if ($self->in_attr) {
+	$self->o("\"$str\"");
+    }
+    else {
+	$self->ensure_closed;
+	$self->{_nl} = 0;
+	$self->o($str);
+    }
     return;
 }
 
