@@ -1,4 +1,4 @@
-# $Id: StagImpl.pm,v 1.3 2002/12/06 23:57:21 cmungall Exp $
+# $Id: StagImpl.pm,v 1.8 2002/12/20 22:30:06 cmungall Exp $
 #
 # Author: Chris Mungall <cjm@fruitfly.org>
 #
@@ -24,7 +24,7 @@ use Data::Stag::Util qw(rearrange);
 use base qw(Data::Stag::StagI);
 
 use vars qw($VERSION);
-$VERSION="0.01";
+$VERSION="0.02";
 
 
 sub new {
@@ -149,9 +149,10 @@ sub parse {
               -str=>$str,
               -fh=>$fh,
              );
-    Nodify($h->tree);
-    @$tree = @{$h->tree || []};
-    return $h->tree;
+    my $htree = $h->can("tree") ? $h->tree : [];
+    Nodify($tree);
+    @$tree = @{$htree || []};
+    return $tree;
 }
 *parseFile = \&parse;
 
@@ -179,9 +180,10 @@ sub from {
     }
 }
 
-sub write {
+sub generate {
     my $tree = shift || [];
-    my ($fn, $fmt, @args) = @_;
+    my ($fn, $fmt, $fh) = 
+      rearrange([qw(file fmt fh)], @_);
     if (!$fmt) {
 	if (!$fn) {
 	    $fmt = "xml";
@@ -202,13 +204,22 @@ sub write {
     elsif ($fmt eq "itext") {
         $writer = "Data::Stag::ITextWriter";
     }
+    elsif ($fmt eq "sxpr") {
+        $writer = "Data::Stag::SxprWriter";
+    }
+    elsif (!$fmt) {
+	confess("no format/writer!");
+    }
     else {
+	confess("unrecognised:$fmt");
     }
     load_module($writer);
-    my $w = $writer->new($fn);
+    my $w = $writer->new(-file=>$fn, -fh=>$fh);
     $w->event(@$tree);
     return;
 }
+*gen = \&generate;
+*write = \&generate;
 
 sub hash {
     my $tree = shift;
@@ -285,6 +296,19 @@ sub xml {
     }
 }
 *tree2xml = \&xml;
+
+sub sxpr {
+    my $tree = shift;
+    my $fn = shift;
+    generate($tree, $fn, 'sxpr', @_);
+}
+
+sub as {
+    my $tree = shift;
+    my $fmt = shift;
+    my $fn = shift;
+    generate($tree, $fn, $fmt, @_);
+}
 
 sub perldump {
     my $tree = shift;
@@ -395,11 +419,11 @@ sub sxpr2tree {
     my @args = ();
     while ($i < length($sxpr)) {
         my $c = substr($sxpr, $i, 1);
-        print STDERR "c;$c i=$i\n";
+#################################        print STDERR "c;$c i=$i\n";
         $i++;
         if ($c eq ')') {
             my $funcnode = shift @args;
-            print STDERR "f = $funcnode->[1]\n";
+#            print STDERR "f = $funcnode->[1]\n";
             map {print xml($_)} @args;
             return [$funcnode->[1] =>[@args]], $i;
         }
@@ -410,7 +434,7 @@ sub sxpr2tree {
             my ($tree, $extra) = sxpr2tree(substr($sxpr, $i), $indent+1);
             push(@args, $tree);
             $i += $extra;
-            printf STDERR "tail: %s\n", substr($sxpr, $i);
+#            printf STDERR "tail: %s\n", substr($sxpr, $i);
         }
         else {
             # look ahead
@@ -1006,7 +1030,7 @@ sub normalize {
             my $pkval = 
               CORE::join("\t",
                          map {
-                             esctab($grouprec->{$_})
+                             esctab($grouprec->{$_} || '')
                          } @$pkcols);
             my $rec = $parent_rec_h->{child_h}->{$groupname}->{$pkval};
             if (!$rec) {
@@ -1138,7 +1162,7 @@ sub tmatchhash {
     for (my $i=0; $i<@mvals; $i++) {
         $pass = 0 if $mvals[$i] ne $rvals[$i];
     }
-    print "CHECK @mvals eq @rvals [$pass]\n";
+#    print "CHECK @mvals eq @rvals [$pass]\n";
     return $pass;
 }
 *tmh = \&tmatchhash;
@@ -1260,7 +1284,7 @@ sub run {
             }
         }
         else {
-            print "rcall $tree $p\n";
+#            print "rcall $tree $p\n";
             push(@args,
                  evalTree($tree,
                           $p));
@@ -1476,6 +1500,17 @@ sub xpquery {
 *xpfind = \&xpquery;
 *xpFind = \&xpquery;
 
+sub grammarparser {
+    my $tree = shift;
+    my $grammar = shift;
+    load_module("Parse::RecDescent");
+    $::RD_AUTOACTION = q 
+      { use Data::Stag;
+	$#item == 1 && !ref $item[1] ? $item[1] : Data::Stag->new(shift @item, [map {if(ref($_)) {$_} else {[arg=>$_]}} @item ]); 
+      };
+    my $parser = Parse::RecDescent->new($grammar) or confess "Bad grammar!\n";
+    return $parser;
+}
 
 #use overload
 #  '.' => sub {my @r=findnodeVal($_[0],$_[1]);$r[0]},
@@ -1532,6 +1567,10 @@ sub data {
     return $self->[1];
 }
 
+sub isterminal {
+    my $self = shift;
+    return !ref($self->data);
+}
 
 sub AUTOLOAD {
     my $self = shift;
