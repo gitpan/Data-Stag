@@ -19,7 +19,7 @@ use strict;
 use base qw(Data::Stag::Base Data::Stag::Writer);
 
 use vars qw($VERSION);
-$VERSION="0.02";
+$VERSION="0.03";
 
 sub init {
     my $self = shift;
@@ -76,7 +76,10 @@ sub evbody {
 }
 
 sub itextesc {
-    my $w = shift || "";
+    my $w = shift;
+    if (!defined($w)) {
+	$w='';
+    }
     $w =~ s/:/\\:/g;
     return $w;
 }

@@ -1,4 +1,4 @@
-# $Id: SxprParser.pm,v 1.5 2002/12/20 22:30:06 cmungall Exp $
+# $Id: SxprParser.pm,v 1.7 2003/03/29 23:33:58 cmungall Exp $
 #
 # Copyright (C) 2002 Chris Mungall <cjm@fruitfly.org>
 #
@@ -11,7 +11,7 @@ package Data::Stag::SxprParser;
 
 =head1 NAME
 
-  ITextParser.pm     - simple wrapper for 
+  SxprParser.pm     - simple wrapper for lisp style S-expression
 
 =head1 SYNOPSIS
 
@@ -24,16 +24,17 @@ package Data::Stag::SxprParser;
 
 =cut
 
+# TODO - rewrite using Text::Balanced
+
 use Exporter;
 use Carp;
 use FileHandle;
 use strict;
-use XML::Parser::PerlSAX;
 use Data::Stag qw(:all);
 use base qw(Data::Stag::BaseGenerator Exporter);
 
 use vars qw($VERSION);
-$VERSION="0.02";
+$VERSION="0.03";
 
 sub parse_fh {
     my $self = shift;
@@ -49,7 +50,7 @@ sub parse_fh {
     my $txt;
     my $in;
     while (<$fh>) {
-        chomp;
+#        chomp;
         s/\;\;.*//;
         while ($_) {
 

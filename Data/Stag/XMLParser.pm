@@ -32,7 +32,7 @@ use XML::Parser::PerlSAX;
 use base qw(Data::Stag::BaseGenerator Exporter);
 
 use vars qw($VERSION);
-$VERSION="0.02";
+$VERSION="0.03";
 
 sub parse_fh {
     my $self = shift;

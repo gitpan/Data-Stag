@@ -1,4 +1,4 @@
-# $Id: BaseHandler.pm,v 1.4 2002/12/20 22:30:06 cmungall Exp $
+# $Id: BaseHandler.pm,v 1.8 2003/04/29 22:28:58 cmungall Exp $
 #
 # This  module is maintained by Chris Mungall <cjm@fruitfly.org>
 
@@ -90,7 +90,7 @@ use Carp;
 use Data::Stag;
 
 use vars qw($VERSION);
-$VERSION="0.02";
+$VERSION="0.03";
 
 
 =head2 tree
@@ -134,12 +134,68 @@ sub new {
     $self;
 }
 
+sub trap_h {
+    my $self = shift;
+    $self->{_trap_h} = shift if @_;
+    return $self->{_trap_h};
+}
+
+sub catch_end_sub {
+    my $self = shift;
+    $self->{_catch_end_sub} = shift if @_;
+    return $self->{_catch_end_sub};
+}
+
+
+sub elt_stack {
+    my $self = shift;
+    $self->{elt_stack} = shift if @_;
+    return $self->{elt_stack};
+}
+
+sub in {
+    my $self = shift;
+    my $in = shift;
+    return 1 if grep {$in eq $_} @{$self->elt_stack};
+}
+
+sub depth {
+    my $self = shift;
+    return scalar(@{$self->elt_stack});
+}
+
+
 sub node {
     my $self = shift;
     $self->{node} = shift if @_;
     return $self->{node};
 }
 
+sub remove_elts {
+    my $self = shift;
+    $self->{_remove_elts} = [@_] if @_;
+    return @{$self->{_remove_elts} || []};
+}
+*kill_elts = \&remove_elts;
+
+sub flatten_elts {
+    my $self = shift;
+    $self->{_flatten_elts} = [@_] if @_;
+    return @{$self->{_flatten_elts} || []};
+}
+
+sub skip_elts {
+    my $self = shift;
+    $self->{_skip_elts} = [@_] if @_;
+    return @{$self->{_skip_elts} || []};
+}
+*raise_elts = \&skip_elts;
+
+sub rename_elts {
+    my $self = shift;
+    $self->{_rename_elts} = {@_} if @_;
+    return %{$self->{_rename_elts} || {}};
+}
 
 sub lookup {
     my $tree = shift;
@@ -174,6 +230,10 @@ sub start_event {
     my $ev = shift;
     my $node = $self->{node};
     my $m = perlify("s_$ev");
+
+    my $stack = $self->elt_stack;
+    push(@$stack, $ev);
+
     if ($self->can($m)) {
         $self->$m;
     }
@@ -195,13 +255,14 @@ sub evbody {
             my $node = $self->{node};
             my $el = $node->[$#{$node}];
             confess unless $el;
-	    if (@$el == 1) {
-		$el->[1] = $arg;
-	    }
-	    else {
-		my $txt_elt_name = $el->[0] . "-text";
-		push(@{$el->[1]}, [$txt_elt_name=>$arg]);
-	    }
+	    $el->[1] = $arg;
+#	    if (@$el == 1) {
+#		$el->[1] = $arg;
+#	    }
+#	    else {
+#		my $txt_elt_name = $el->[0] . "-text";
+#		push(@{$el->[1]}, [$txt_elt_name=>$arg]);
+#	    }
         }
     }
     return;
@@ -218,20 +279,48 @@ sub b {shift->evbody(@_)}
 sub end_event {
     my $self = shift;
     my $ev = shift;
-#    my $stack = $self->{evstack};
-#    my $last = pop @$stack;
-    my $m = perlify("e_$ev");
-#    print STDERR "m=$m\n";
+
+    my $stack = $self->elt_stack;
+    pop(@$stack);
+
     my $node = $self->node;
     my $topnode = pop @$node;
+
+    my %rename = $self->rename_elts;
+    if ($rename{$ev}) {
+        $ev = $rename{$ev};
+        $topnode->[0] = $ev;
+    }
+    
+    my $m = perlify("e_$ev");
+    my $check = scalar(@$topnode);
+    if ($check < 2) {
+        # NULLs are treated the same as
+        # empty strings
+        # [if we have empty tags <abcde></abcde>
+        #  then no evbody will be called - we have to
+        #  fill in the equivalent of a null evbody here]
+        push(@$topnode, '');
+    }
+    elsif ($check < 2) {
+        confess("ASSERTION ERROR: all events must be paired; @$topnode");
+    }
+    else {
+        # all ok
+    }
     my $topnodeval = $topnode->[1];
+
+    my $trap_h = $self->trap_h;
+    if ($trap_h && $trap_h->{$ev}) {
+        # call anonymous subroutine supplied in hash
+        $trap_h->{$ev}->($self, Data::Stag::stag_nodify($topnode));
+    }
 
     if ($self->can("flatten_elts") &&
         grep {$ev eq $_} $self->flatten_elts) {
 
         if (ref($topnodeval)) {
             my $el = $node->[$#{$node}];
-######      push(@{$el->[1]}, [$ev, $topnodeval->[0]->[1]]);
             my $subevent = $topnodeval->[0]->[0];
             foreach my $subtree (@$topnodeval) {
                 if ($subtree->[0] ne $subevent) {
@@ -272,41 +361,40 @@ sub end_event {
         if (ref($topnodeval)) {
             my $el = $node->[$#{$node}];
 
-#            push(@{$el->[1]}, [$ev, $topnodeval->[0]->[1]]);
             my $new =  [map {[$ev, [$_]]} @{$topnodeval}];
-#            use Data::Dumper;
-#            print Dumper $topnodeval;
-#            print Dumper $new;
             push(@{$el->[1]},@$new);
         }
 
     }
     elsif ($self->can($m)) {
-#        use Data::Dumper;
-#        print "EV:$ev  ";
-#        print Dumper $cv->[1];
-        my $tree = $self->$m($topnodeval);
-        my $el = $node->[$#{$node}];
-        push(@{$el->[1]}, $tree) if $tree;
+#        my $tree = $self->$m($topnodeval);
+        my $tree = $self->$m(Data::Stag::stag_nodify($topnode));
+
     }
     else {
         if ($self->can("catch_end")) {
-            my $tree = $self->catch_end($ev, Data::Stag::stag_nodify($topnode));
-            my $el = $node->[$#{$node}];
-            push(@{$el->[1]}, $tree) if $tree;
+            $self->catch_end($ev, Data::Stag::stag_nodify($topnode));
+        }
+        if ($self->catch_end_sub) {
+            $self->catch_end_sub->($self, Data::Stag::stag_nodify($topnode));
         }
         if (@$node) {
             my $el = $node->[$#{$node}];
             if ($topnode) {
-                push(@{$el->[1]}, $topnode);
-                #            $el->[1] = $topnode;
-
+                if (@$topnode) {
+                    if (!$el->[1]) {
+#                        print STDERR "*** adding el to $el->[0]...\n";
+#                        use Data::Dumper;
+#                        print Dumper $node;
+                        $el->[1] = [];
+                    }
+                    push(@{$el->[1]}, $topnode);
+                }
             }
         }
     }
 #    if (!@$node) {
         #final event
-#        $self->tree($topnode);
         $self->tree(Data::Stag::stag_nodify($topnode));
 #    }
     return $ev;
@@ -359,10 +447,14 @@ sub start_element {
     my $name = $element->{Name};
     my $atts = $element->{Attributes};
 
-    if (!$self->{elt_stack}) {
-	$self->{elt_stack} = [];
+    if (!$self->{sax_elt_stack}) {
+	$self->{sax_elt_stack} = [];
     }
-    push(@{$self->{elt_stack}}, $name);
+    push(@{$self->{sax_elt_stack}}, $name);
+    push(@{$self->{is_nonterminal_stack}}, 0);
+    if (@{$self->{is_nonterminal_stack}} > 1) {
+	$self->{is_nonterminal_stack}->[-2] = 1;
+    }
 
     # check if we need an event
     # for any preceeding pcdata
@@ -371,7 +463,7 @@ sub start_element {
         $str =~ s/^\s*//;
         $str =~ s/\s*$//;
 	if ($str) {
-	    my $parent = $self->{elt_stack}->[-2];
+	    my $parent = $self->{sax_elt_stack}->[-2];
 	    $self->event("$parent-text", $str) if $str;
 	}
 	$self->{__str} = undef;
@@ -380,6 +472,7 @@ sub start_element {
     $self->start_event($name);
     foreach my $k (keys %$atts) {
         $self->event("$name-$k", $atts->{$k});
+	$self->{is_nonterminal_stack}->[-1] = 1;
     }
 #    $self->{Handler}->start_element($element);
     
@@ -389,7 +482,7 @@ sub characters {
     my ($self, $characters) = @_;
     my $char = $characters->{Data};
     my $str = $self->{__str};
-    if ($char) {
+    if (defined $char) {
         $str = "" if !defined $str;
         $str .= $char;
     }
@@ -404,11 +497,21 @@ sub end_element {
     my ($self, $element) = @_;
     my $name = $element->{Name};
     my $str = $self->{__str};
-    pop(@{$self->{elt_stack}});
+    my $parent = pop(@{$self->{sax_elt_stack}});
+    my $is_nt = pop(@{$self->{is_nonterminal_stack}});
     if (defined $str) {
         $str =~ s/^\s*//;
         $str =~ s/\s*$//;
-        $self->evbody($str) if $str;
+	if ($str || $str eq '0') {
+	    if ($is_nt) {
+		$self->event($parent . "-text" =>
+			     $str);
+			     
+	    }
+	    else {
+		$self->evbody($str);
+	    }
+	}
     }
     $self->end_event($name);
     $self->{__str} = undef;

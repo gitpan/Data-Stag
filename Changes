@@ -1,0 +1,35 @@
+Changelog for Data::Stag
+
+Version 0.01
+============
+
+2002-12-07	- Initial Release
+
+Version 0.02
+============
+
+2002-12-20	- Added Data::Stag::Writer and tidied up writer classes
+		- added stag-splitter.pl script
+		- fixed Makefile.PL
+
+Version 0.03
+============
+
+2003-04-29	- Fixed bug with empty XML tags being treated as nulls
+                - Fixed bug with XML parsing/export where zero-valued
+                  pcdata was treated as empty string
+                  (new test emptytag.t added for these)
+                - Modified behaviour of BaseHandler - now the whole
+                  stag object is passed. This can be manipulated by
+                  the intercepting code directly
+                - Added makehandler() to Data::Stag
+
+                - BIG CHANGE: behaviour of 'get' now different;
+                  if the value 'got' is a terminal, will return
+                  the node data; if it is non-terminal, it will
+                  return the node itself (like getnode()).
+                  there is a new method 'getdata' for explicitly
+                  getting the data value in all cases
+
+                - added ChainHandler
+		- added various stag-* scripts

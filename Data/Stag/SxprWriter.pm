@@ -28,7 +28,7 @@ use strict;
 use base qw(Data::Stag::Base Data::Stag::Writer);
 
 use vars qw($VERSION);
-$VERSION="0.02";
+$VERSION="0.03";
 
 sub init {
     my $self = shift;
@@ -99,6 +99,9 @@ sub end_event {
         warn("uh oh; $ev ne $popped");
     }
     $self->o(")");
+    if (!@$stack) {
+	$self->o("\n");
+    }
     return $ev;
 }
 sub evbody {
@@ -110,6 +113,7 @@ sub evbody {
 
 sub lispesc {
     my $w = shift;
+    return '""' unless $w;
     $w =~ s/\(/\\\(/g;
     $w =~ s/\)/\\\)/g;
     $w =~ s/\"/\\\"/g;

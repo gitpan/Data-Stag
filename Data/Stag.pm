@@ -1,4 +1,4 @@
-# $Id: Stag.pm,v 1.8 2002/12/20 22:30:06 cmungall Exp $
+# $Id: Stag.pm,v 1.16 2003/04/30 05:46:07 cmungall Exp $
 # -------------------------------------------------------
 #
 # Copyright (C) 2002 Chris Mungall <cjm@fruitfly.org>
@@ -22,7 +22,7 @@ use Data::Stag::Base;
 use XML::Parser::PerlSAX;
 
 use vars qw($VERSION);
-$VERSION="0.02";
+$VERSION="0.03";
 
 @AUTOMETHODS = qw(
                   new
@@ -41,11 +41,13 @@ $VERSION="0.02";
                   gn getn getnode
                   s  set
                   u  unset
+		  free
                   a  add
                   e element name
                   k kids children
                   ak addkid addchild
                   subnodes
+                  isterminal
                   j nj njoin
                   paste
                   qm qmatch
@@ -54,6 +56,7 @@ $VERSION="0.02";
                   tmn tmatchnode
                   cm cmatch
                   w where
+		  iterate
                   run
                   collapse
                   merge
@@ -61,7 +64,12 @@ $VERSION="0.02";
                   isanode
                   parser
                   parse parsefile
+		  parsestr
 		  generate gen write
+                  makehandler mh
+                  findhandler 
+                  getformathandler 
+		  chainhandlers
                   xml   tree2xml
                   hash tree2hash
                   pairs tree2pairs
@@ -194,7 +202,7 @@ __END__
   # PROCEDURAL USAGE
   use Data::Stag qw(:all);
   $doc = stag_parse($file);
-  @persons = stag_findnode($doc, "person");
+  @persons = stag_find($doc, "person");
   foreach $p (@persons) {
     printf "%s, %s phone: %s\n",
       stag_sget($p, "family_name"),
@@ -206,7 +214,7 @@ __END__
   # OO USAGE
   use Data::Stag;
   $doc = Data::Stag->new->parse($file);
-  @persons = $doc->findnode("person");
+  @persons = $doc->find("person");
   foreach $p (@person) {
     printf "%s, %s phone:%s\n",
       $p->sget("family_name"),
@@ -356,19 +364,16 @@ the same can be done in a more OO fashion
 
 =head2 IN A STREAM
 
-  use Data::Stag::XMLParser;
-  use MyTransform;      # inherits from Data::Stag::Base
-  my $p = Data::Stag::XMLParser->new;
-  my $h = MyTransform->new;   # create a handler
-  $p->handler($h);
-  $p->parse($xmlfile);
-
-The above can be simplified like this:
-
   use Data::Stag;
-  use MyTransform;      # inherits from Data::Stag::Base
-  my $h = MyTransform->new;
-  Data::Stag->new->parse(-file=>$xmlfile, -handler=>$h);
+  # catch the end of 'person' elements
+  my $h = Data::Stag->makehandler( person=> sub {
+                                               my ($self, $person) = @_;
+                                               printf "name:%s phone:%s\n",
+                                                 $person->get_name,
+                                                 $person->get_phone;
+                                                });
+  Data::Stag->parse(-handler=>$h,
+                    -file=>$f);
 
 see L<Data::Stag::Base> for writing handlers
 
@@ -669,7 +674,7 @@ like this:
      );
 
   # find all people
-  my @persons = stag_findnode($tree, 'person');
+  my @persons = stag_find($tree, 'person');
 
   # write xml for all red haired people
   foreach my $p (@persons) {
@@ -757,26 +762,24 @@ in perl. As always with perl, the decision is yours.
 creates a new instance of a Data::Stag node
 
 
+=head3 stagify (nodify)
 
-=head3 nodify 
-
-       Title: nodify
-
+       Title: stagify
+     Synonym: nodify
         Args: data array-reference
      Returns: Data::Stag node
-     Example: $node = stag_nodify([person => [[name=>$n], [phone=>$p]]]);
+     Example: $node = stag_stagify([person => [[name=>$n], [phone=>$p]]]);
 
 turns a perl array reference into a Data::Stag node.
 
 similar to B<new>
 
 
-
 =head3 parse 
 
        Title: parse
 
-        Args: file str, [format str], [handler obj]
+        Args: [file str], [format str], [handler obj], [fh FileHandle]
      Returns: Data::Stag node
      Example: $node = stag_parse($fn);
      Example: $node = Data::Stag->parse(-file=>$fn, -handler=>$myhandler);
@@ -787,7 +790,21 @@ guess the format from the suffix if it is not given.
 The format can also be the name of a parsing module, or an actual
 parser object
 
+The handler is any object that can take nested Stag events
+(start_event, end_event, evbody) which are generated from the
+parse. If the handler is omitted, all events will be cached and the
+resulting tree will be returned.
 
+=head3 parsestr 
+
+       Title: parsestr
+
+        Args: [str str], [format str], [handler obj]
+     Returns: Data::Stag node
+     Example: $node = stag_parsestr('(a (b (c "1")))');
+     Example: $node = Data::Stag->parsestr(-str=>$fn, -handler=>$myhandler);
+
+Similar to parse(), except the first argument is a string
 
 =head3 from 
 
@@ -838,11 +855,97 @@ Instead of:
 
 The former gets converted into the latter for the internal representation
 
+
+=head3 makehandler
+
+       Title: makehandler
+
+        Args: hash of CODEREFs keyed by element name
+     Returns: L<Data::Stag::BaseHandler>
+     Example: $h = Data::Stag->makehandler(%subs);
+
+This creates a Stag event handler
+
+  $h = Data::Stag->makehandler(
+                               a => sub { my ($self,$stag) = @_;
+                                          $stag->set_foo("bar");});
+  $stag = Data::Stag->parse(-str=>"(...)", -handler=>$h)
+
   
+=head3 getformathandler
+
+       Title: getformathandler
+
+        Args: format str OR L<Data::Stag::BaseHandler>
+     Returns: L<Data::Stag::BaseHandler>
+     Example: $h = Data::Stag->getformathandler('xml');
+
+Creates a Stag event handler - this handler can be passed to an event
+generator / parser. Built in handlers include:
+
+=over
+
+=item xml
+
+Generates xml tags from events
+
+=item sxpr
+
+Generates S-Expressions from events
+
+=item itext
+
+Generates indented text from events
+
+=back
+
+=head3 chainhandler
+
+       Title: chainhandler
+
+        Args: blocked events - str or str[]
+              initial handler - handler object
+              final handler - handler object
+     Returns: 
+     Example: $h = Data::Stag->chainhandler('foo', $processor, 'xml')
+
+  $processor = Data::Stag->makehandler(
+				       a => sub { my ($self,$stag) = @_;
+						  $stag->set_foo("bar");});
+  $chainh = Data::Stag->chainhandler(['a', 'b'], $processor, 'xml');
+  $stag = Data::Stag->parse(-str=>"(...)", -handler=>$chainh)
+
+chains together two handlers (see stag-handle.pl)
+
 
 =head2  RECURSIVE SEARCHING
 
 
+=head3 find (f)
+
+       Title: find
+     Synonym: f
+
+        Args: element str
+     Returns: node[] or ANY
+     Example: @persons = stag_find($struct, 'person');
+     Example: @persons = $struct->find('person');
+
+recursively searches tree for all elements of the given type, and
+returns all nodes or data elements found.
+
+if the element found is a non-terminal node, will return the node
+if the element found is a terminal (leaf) node, will return the data value
+
+the element argument can be a path
+
+  @names = $struct->find('department/person/name');
+
+will find name in the nested structure below:
+
+  (department
+   (person
+    (name "foo")))
 
 
 =head3 findnode (fn)
@@ -858,7 +961,7 @@ The former gets converted into the latter for the internal representation
 recursively searches tree for all elements of the given type, and
 returns all nodes found.
 
-
+paths can also be used (see B<find>)
 
 =head3 findval (fv)
 
@@ -875,7 +978,7 @@ recursively searches tree for all elements of the given type, and
 returns all data values found. the data values could be primitive
 scalars or nodes.
 
-
+paths can also be used (see B<find>)
 
 =head3 sfindval (sfv)
 
@@ -889,7 +992,7 @@ scalars or nodes.
 
 as findval, but returns the first value found
 
-
+paths can also be used (see B<find>)
 
 =head3 findvallist (fvl)
 
@@ -903,9 +1006,8 @@ as findval, but returns the first value found
 
 recursively searches tree for all elements in the list
 
-DEPRECATED?
+DEPRECATED
 
-  
 
 =head2 DATA ACCESSOR METHODS
 
@@ -921,11 +1023,14 @@ current one
      Synonym: g
 
         Args: element str
-      Return: ANY
+      Return: node[] or ANY
      Example: $name = $person->get('name');
      Example: @phone_nos = $person->get('phone_no');
 
-gets the data value of an element for any node
+gets the value of the named sub-element
+
+if the sub-element is a non-terminal, will return a node(s)
+if the sub-element is a terminal (leaf) it will return the data value(s)
 
 the examples above would work on a data structure like this:
 
@@ -938,6 +1043,10 @@ will return an array or single value depending on the context
 [equivalent to findval(), except that only direct children (as
 opposed to all descendents) are checked]
 
+paths can also be used, like this:
+
+ @phones_nos = $struct->get('person/phone_no')
+
 =head3 sget (sg)
 
        Title: sget
@@ -945,8 +1054,9 @@ opposed to all descendents) are checked]
 
         Args: element str
       Return: ANY
-     Example: $name = $person->get('name');
-     Example: $phone = $person->get('phone_no');
+     Example: $name = $person->sget('name');
+     Example: $phone = $person->sget('phone_no');
+     Example: $phone = $person->sget('department/person/name');
 
 as B<get> but always returns a single value
 
@@ -961,8 +1071,8 @@ opposed to all descendents) are checked]
      Synonym: getlist
 
         Args: element str[]
-      Return: ANY[]
-     Example: ($name, @phone) = $person->get('name', 'phone_no');
+      Return: node[] or ANY[]
+     Example: ($name, @phone) = $person->getl('name', 'phone_no');
 
 returns the data values for a list of sub-elements of a node
 
@@ -1027,7 +1137,36 @@ primitive value, then you have to do it like this:
 
 prunes all nodes of the specified element from the current node
 
+=head3 free 
 
+       Title: free
+     Synonym: u
+
+        Args: 
+      Return: 
+     Example: $person->free;
+
+removes all data from a node. If that node is a subnode of another
+node, it is removed altogether
+
+for instance, if we had the data below:
+
+  <person>
+    <name>fred</name>
+    <address>
+    ..
+    </address>
+  </person>
+
+and called
+
+  $person->get_address->free
+
+then the person node would look like this:
+
+  <person>
+    <name>fred</name>
+  </person>
 
 =head3 add (a)
 
@@ -1053,9 +1192,51 @@ creates new element value pairs if not already existing.
       Return: element str
      Example: $element = $struct->element
 
-returns the element name of the current node
+returns the B<element name> of the current node.
 
+This is illustrated in the different representation formats below
 
+=over
+
+=item sxpr
+
+  (element "data")
+
+or
+
+  (element
+   (sub_element "..."))
+
+=item xml
+
+  <element>data</element>
+
+or
+
+  <element>
+    <sub_element>...</sub_element>
+  </element>
+
+=item perl
+
+  [element => $data ]
+
+or
+
+  [element => [
+                [sub_element => "..." ]]]
+
+=item itext
+
+  element: data
+
+or
+
+  element:
+    sub_element: ...
+
+=back
+ 
 
 =head3 kids (k children)
 
@@ -1109,7 +1290,7 @@ returns the non-terminal data value(s) of the current node;
      Synonym: j
      Synonym: nj
 
-        Args: element str
+        Args: element str, key str, data Node
       Return: undef
 
 does a relational style natural join - see previous example in this doc
@@ -1125,7 +1306,8 @@ does a relational style natural join - see previous example in this doc
       Return: node[]
      Example: @persons = $s->qmatch('name', 'fred');
 
-queries the node tree for all elements that satisfy the specified key=val match
+queries the node tree for all elements that satisfy the specified
+key=val match - see previous example in this doc
 
 
 
@@ -1139,7 +1321,8 @@ queries the node tree for all elements that satisfy the specified key=val match
       Return: bool
      Example: @persons = grep {$_->tmatch('name', 'fred')} @persons
 
-returns true if the the value of the specified element matches
+returns true if the the value of the specified element matches - see
+previous example in this doc
 
 
 
@@ -1152,7 +1335,8 @@ returns true if the the value of the specified element matches
       Return: bool
      Example: @persons = grep {$_->tmatchhash({name=>'fred', hair_colour=>'green'})} @persons
 
-returns true if the node matches a set of constraints, specified as hash
+returns true if the node matches a set of constraints, specified as
+hash.
 
 
 
@@ -1205,6 +1389,41 @@ satisfy the coderef (must return a boolean)
 
 
 
+=head3 iterate (i)
+
+       Title: iterate
+     Synonym: i
+
+        Args: CODE
+      Return: Node[]
+     Example: $data->iterate(sub {
+				 my $stag = shift;
+				 my $parent = shift;
+				 if ($stag->element eq 'pet') {
+				     $parent->set_pet_name($stag->get_name);
+				 }
+			     });
+
+iterates through whole tree calling the specified subroutine.
+
+the first arg passed to the subroutine is the stag node representing
+the tree at that point; the second arg is for the parent.
+
+for instance, the example code above would turn this
+
+  (person
+   (name "jim")
+   (pet
+    (name "fluffy")))
+
+into this
+
+  (person
+   (name "jim")
+   (pet_name "fluffy")
+   (pet
+    (name "fluffy")))
+
 =head2 MISCELLANEOUS METHODS
 
 
@@ -1218,7 +1437,7 @@ satisfy the coderef (must return a boolean)
       Return: Node
      Example: $node2 = $node->duplicate;
 
-
+does a deep copy of a stag structure
 
 =head3 isanode
 
@@ -1227,8 +1446,6 @@ satisfy the coderef (must return a boolean)
         Args:
       Return: bool
      Example: if (stag_isanode($node)) { ... }
-
-really only useful in non OO mode...
 
 
 
