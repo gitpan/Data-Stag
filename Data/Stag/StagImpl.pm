@@ -1,4 +1,4 @@
-# $Id: StagImpl.pm,v 1.21 2003/04/30 05:46:08 cmungall Exp $
+# $Id: StagImpl.pm,v 1.38 2004/02/02 20:31:11 cmungall Exp $
 #
 # Author: Chris Mungall <cjm@fruitfly.org>
 #
@@ -21,6 +21,7 @@ This is the default implementation for Data::Stag - please see L<Data::Stag>
 =cut
 
 use FileHandle;
+use IO::String;
 use Carp;
 use strict;
 use vars qw($AUTOLOAD $DEBUG);
@@ -44,20 +45,74 @@ sub new {
 }
 
 sub unflatten {
-    my $tree = shift || [];
-    my @intree = @_;
-    my @outtree = ();
-    while (@intree) {
-        my $k = shift @intree;
-        my $v = shift @intree;
-        if (ref($v)) {
-            $v = [unflatten(@$v)];
-        }
-        push(@outtree,
-             [$k=>$v]);
+    my $proto = shift; 
+    my $class = ref($proto) || $proto;
+    my ($name, $flist) = @_;
+    my @uflist = ();
+    if (!ref($flist)) {
+	return $class->new($name=>$flist);
     }
-    @$tree = @outtree;
-    return $tree;
+    if (ref($flist) eq 'HASH') {
+	# unpack hash into array
+	$flist = [%$flist];
+    }
+    if (ref($flist) ne 'ARRAY') {
+	confess("$name => $flist not array");
+    }
+    while (@$flist) {
+	my $k = shift @$flist;
+        my $v = shift @$flist;
+	if (ref($v)) {
+	    push(@uflist,
+		 $class->unflatten($k=>$v));
+	}
+	else {
+	    push(@uflist,
+		 [$k=>$v]);
+	}
+    }
+    return $class->new($name=>[@uflist]);
+}
+
+sub unhash {
+    my $proto = shift; 
+    my $class = ref($proto) || $proto;
+    my %hash = @_;
+
+    my @tags = ();
+    foreach my $k (keys %hash) {
+	my $v = $hash{$k};
+	if (ref($v)) {
+	    if (ref($v) eq 'ARRAY') {
+		push(@tags, [$k=>$_]) foreach @$v;
+	    }
+	    elsif (ref($v) eq 'HASH') {
+		my $stag = unhash($class, %$v);
+		push(@tags, [$k=>$stag->data]);
+	    }
+	    else {
+		confess("cannot unhash $v");
+	    }
+	}
+	else {
+	    push(@tags, [$k=>$v]);
+	}
+    }
+    return $class->new(stag=>[@tags]);
+}
+
+sub unstone {
+    my $tree = shift; 
+    my $stone = shift;
+    my $xml = $stone->asXML;
+    from($tree, xmlstr=>$xml);
+}
+
+sub stone {
+    my $tree = shift;
+    my %h = hash($tree);
+    load_module("Stone");
+    Stone->new(%h);
 }
 
 sub load_module {
@@ -85,9 +140,13 @@ sub load_module {
 
 sub parser {
     my $tree = shift;
-    my ($fn, $fmt, $h, $str, $fh) = 
-      rearrange([qw(file format handler str fh)], @_);
+    my ($fn, $fmt, $h, $eh, $str, $fh) = 
+      rearrange([qw(file format handler errhandler str fh)], @_);
 
+    if ($fn && $fn eq '-') {
+	$fn = '';
+	$fh = \*STDIN;
+    }
     # GUESS FORMAT BASED ON FILENAME
     if (!$fmt && $fn) {
 	if ($fn =~ /\.xml$/) {
@@ -148,11 +207,12 @@ sub parser {
     }
 
     my $parser;
-    if ($fmt =~ /::/) {
+    if (!ref($fmt) && $fmt =~ /::/) {
         load_module($fmt);
         $fmt = $fmt->new;
     }
-    if (ref $fmt) {
+
+    if (ref($fmt)) {
         $parser = $fmt;
     }
     elsif ($fmt eq "xml") {
@@ -168,17 +228,21 @@ sub parser {
         $parser = "Data::Stag::SxprParser";
     }
     else {
+	confess("cannot guess parser from fmt=\"$fmt\" @_") unless $parser;
     }
-    confess("cannot guess parser from @_") unless $parser;
-    load_module($parser);
-    my $p = $parser->new;
-    return $p;
+    unless (ref($parser)) {
+	load_module($parser);
+	$parser = $parser->new;
+    }
+    $parser->file($fn) if $fn;
+#    $parser->fh($fh) if $fh;
+    return $parser;
 }
 
 sub parse {
     my $tree = shift;
-    my ($fn, $fmt, $h, $str, $fh) = 
-      rearrange([qw(file format handler str fh)], @_);
+    my ($fn, $fmt, $h, $eh, $str, $fh) = 
+      rearrange([qw(file format handler errhandler str fh)], @_);
 
     if (!$tree || !ref($tree)) {
         $tree = [];
@@ -186,7 +250,12 @@ sub parse {
 
     my $p = parser($tree, @_);
     $h = Data::Stag::Base->new unless $h;
+    if (!$eh) {
+	$eh = getformathandler($tree, 'xml');
+	$eh->fh(\*STDERR);
+    }
     $p->handler($h);
+    $p->errhandler($eh);
     $p->parse(
               -file=>$fn,
               -str=>$str,
@@ -201,12 +270,13 @@ sub parse {
 
 sub parsestr {
     my $tree = shift;
-    my ($str, $fmt, $h) = 
-      rearrange([qw(str format handler)], @_);
+    my ($str, $fmt, $h, $eh) = 
+      rearrange([qw(str format handler errhandler)], @_);
     return 
       $tree->parse(-str=>$str,
 		   -format=>$fmt,
-		   -handler=>$h);
+		   -handler=>$h,
+		   -errhandler=>$eh);
 		 
 }
 *parseStr = \&parsestr;
@@ -256,16 +326,16 @@ sub _gethandlerobj {
     if (ref($fmt)) {
         return $fmt;
     }
-    elsif ($fmt eq "xml") {
+    elsif ($fmt =~ /xml/i) {
         $writer = "Data::Stag::XMLWriter";
     }
-    elsif ($fmt eq "itext") {
+    elsif ($fmt =~ /itext/i) {
         $writer = "Data::Stag::ITextWriter";
     }
-    elsif ($fmt eq "sxpr") {
+    elsif ($fmt =~ /sxpr/i) {
         $writer = "Data::Stag::SxprWriter";
     }
-    elsif ($fmt eq "simple") {
+    elsif ($fmt =~ /simple/i) {
         $writer = "Data::Stag::Simple";
     }
     elsif ($fmt =~ /::/) {
@@ -278,6 +348,7 @@ sub _gethandlerobj {
 	confess("unrecognised:$fmt");
     }
     load_module($writer);
+
     my $w = $writer->new(-file=>$fn, -fh=>$fh);
     return $w;
 }
@@ -292,18 +363,56 @@ sub getformathandler {
 sub generate {
     my $tree = shift || [];
     my $w = _gethandlerobj($tree, @_);
+    $w->is_buffered(1);
     $w->event(@$tree);
-    return;
+    return $w->popbuffer || '';
 }
 *gen = \&generate;
-*write = \&generate;
 
+sub write {
+    my $tree = shift || [];
+    my $w = _gethandlerobj($tree, @_);
+
+    $w->is_buffered(0);
+    $w->event(@$tree);
+    $w->close_fh;
+    return;
+}
+    
 sub makehandler {
     my $tree = shift;
-    my %trap_h = @_;
-    load_module("Data::Stag::BaseHandler");
-    my $handler = Data::Stag::BaseHandler->new;
-    $handler->trap_h(\%trap_h);
+    my $handler;
+    if (@_ == 1) {
+	my $module = shift;
+	load_module($module);
+	$handler = $module->new;
+    }
+    else {
+	my %trap_h = @_;
+	my %opt_h = ();
+	%trap_h =
+	  map {
+	      if ($_ =~ /^-(.*)/) {
+		  $opt_h{lc($1)} = $trap_h{$_};
+		  ();
+	      }
+	      else {
+		  ($_ => $trap_h{$_})
+	      }
+	  } keys %trap_h;
+	load_module("Data::Stag::BaseHandler");
+	$handler = Data::Stag::BaseHandler->new;
+	$handler->trap_h(\%trap_h);
+	
+	if ($opt_h{notree}) {
+	    load_module("Data::Stag::null");
+	    my $null = Data::Stag::null->new;
+	    my $ch = Data::Stag->chainhandlers([keys %trap_h],
+					       $handler,
+					       $null);
+	    return $ch;
+	}
+    }
     return $handler;
 }
 *mh = \&makehandler;
@@ -328,6 +437,9 @@ sub chainhandlers {
                                        $_;
                                    }
                                }
+			       elsif (!$_) {
+				   ()
+			       }
                                else {
                                    # assume it is string specifying format
                                    _gethandlerobj($tree, -fmt=>$_)
@@ -337,24 +449,94 @@ sub chainhandlers {
     return $handler;
 }
 
+sub transform {
+    my $tree = shift;
+    my @T = @_;
+    my %trap_h = 
+      map {
+	  my ($from, $to) = @$_;
+	  $from=> sub {
+	      my $self = shift;
+	      my $stag = shift;
+#	      print STDERR "Transforming $from => $to\n";
+#	      print STDERR $stag->sxpr;
+	      my $data = $stag->data;
+	      my @path = splitpath($to);
+	      my $node = [];
+	      my $p = $node;
+	      while (@path) {
+		  my $elt = shift @path;
+		  $p->[0] = $elt;
+		  if (@path) {
+		      my $newpath = [];
+		      $p->[1] = [$newpath];
+		      $p = $newpath;
+		  }
+		  else {
+		      $p->[1] = $data;
+		  }
+	      }
+#	      @$stag = @$node;
+#	      print STDERR $stag->sxpr;
+	      return $node;
+#	      return 0;
+	  }
+      } @T;
+    load_module("Data::Stag::BaseHandler");
+    my $handler = Data::Stag::BaseHandler->new;
+    $handler->trap_h(\%trap_h);
+    $tree->events($handler);
+    my $nu = $handler->stag;
+    @$tree = @$nu;
+    return;
+}
+*t = \&transform;
+
+# transform stag into hash datastruct;
+# stag keys become hash keys (unordered)
+# single valued keys map to single value (itself a hash or primitive)
+# multivalued map to arrayrefs
 sub hash {
     my $tree = shift;
     my ($ev, $subtree) = @$tree;
+
+    # make sure we have non-terminal
     if (ref($subtree)) {
-        my @h = map { tree2hash($_) } @$subtree;
+	# make hash using stag keys
         my %h = ();
-        while (@h) {
-            my $k = shift @h;
-            my $v = shift @h;
-#            print STDERR "$k = $v;; [@h]\n";
-            $h{$k} = [] unless $h{$k};
-            push(@{$h{$k}}, @$v);
+	foreach my $subnode (@$subtree) {
+	    my $k = $subnode->[0];
+	    my $v;
+	    
+	    # terminals map to data value; non-terminals
+	    # get recursively mapped to hashes
+	    if (isterminal($subnode)) {
+		$v = $subnode->[1];
+	    }
+	    else {
+		$v = {hash($subnode)};
+	    }
+
+	    # determine if it is single-valued or multi-valued hash
+	    my $curr = $h{$k};
+	    if ($curr) {
+		if (ref($curr) && ref($curr) eq 'ARRAY') {
+		    push(@$curr, $v);
+		}
+		else {
+		    $h{$k} = [$curr, $v];
+		}
+	    }
+	    else {
+		# if there is only one value, don't use array -- yet
+		$h{$k} = $v;
+	    }
         }
-        return $ev => [{%h}];
-#        return [map { tree2hash($_) } @$subtree];
+	return %h;
     }
     else {
-        return $ev=>[$subtree];
+	warn("can't make a hash from a terminal");
+        return ();
     }
 }
 *tree2hash = \&hash;
@@ -372,7 +554,7 @@ sub _pairs {
     if (ref($subtree)) {
         my @pairs = map { _pairs($_) } @$subtree;
         return $ev=>[@pairs];
-#        return [map { tree2hash($_) } @$subtree];
+#        return [map { hash($_) } @$subtree];
     }
     else {
         return $ev=>$subtree;
@@ -422,8 +604,9 @@ sub _dlist {
 sub xml {
     my $tree = shift;
     my $indent = shift || 0;
-    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isaNode($tree);
+    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isastag($tree);
     my ($ev, $subtree) = @$tree;
+    return "" unless $ev;
     if (ref($subtree)) {
         return 
           sprintf("%s<$ev>\n%s%s</$ev>\n",
@@ -628,7 +811,7 @@ sub sxpr2tree {
 sub addkid {
     my $tree = shift;
     my $newtree = shift;
-    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isaNode($tree);
+    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isastag($tree);
     my ($ev, $subtree) = @$tree;
     push(@$subtree, $newtree);
     $newtree;
@@ -649,7 +832,7 @@ sub findnode {
     my ($node, @path) = splitpath(shift);
 
     my $replace = shift;
-    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isaNode($tree);
+    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isastag($tree);
 
     if (@path) {
         my @r = map { $_->findnode(\@path, $replace) } findnode($tree, $node);        
@@ -657,6 +840,7 @@ sub findnode {
     }
 
     my ($ev, $subtree) = @$tree;
+    my @r = ();
     if ($DEBUG) {
         print STDERR "$ev, $subtree;; replace = $replace\n";
     }
@@ -667,26 +851,29 @@ sub findnode {
         if (defined $replace) {
             my @old = @$tree;
             @$tree = @$replace;
-            return [@old];
+            return Nodify([@old]);
         }
 #        return [$ev=>$subtree] ;
-        return $tree ;
+#        return Nodify($tree);
+	@r = (Nodify($tree));
     }
-    return unless ref($subtree);
-    my @nextlevel =
-      map { 
-          map {
-              Nodify($_)
-          } findnode($_, $node, $replace);
-          
-      } @$subtree;
-    # get rid of empty nodes
-    # (can be caused by replacing)
-    @$subtree = map { ref($_) && !scalar(@$_) ? () : $_ } @$subtree;
+    my @nextlevel = ();
+    if ( ref($subtree)) {
+	@nextlevel =
+	  map { 
+	      map {
+		  Nodify($_)
+	      } findnode($_, $node, $replace);
+	      
+	  } @$subtree;
+	# get rid of empty nodes
+	# (can be caused by replacing)
+	@$subtree = map { ref($_) && !scalar(@$_) ? () : $_ } @$subtree;
+    }
 #    if (wantarray) {
 #        return $nextlevel[0];
 #    }
-    return @nextlevel;
+    return (@r, @nextlevel);
 }
 *fn = \&findnode;
 *findSubTree = \&findnode;
@@ -697,7 +884,7 @@ sub remove {
     my ($node, @path) = splitpath(shift);
 
     my $replace = shift;
-    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isaNode($tree);
+    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isastag($tree);
 
     if (@path) {
         $_->remove(\@path) foreach findnode($tree, $node);        
@@ -730,7 +917,7 @@ sub set {
         return @replace;
     }
 
-    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isaNode($tree);
+    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isastag($tree);
     my ($ev, $subtree) = @$tree;
     confess("$subtree not arr [$ev IS A TERMINAL NODE!!]") unless ref($subtree);
     my $is_set;
@@ -767,6 +954,17 @@ sub set {
 *s = \&set;
 *setSubTreeVal = \&set;
 
+sub setl {
+    my $tree = shift || confess;
+    my @args = @_;
+    while (@args) {
+	set($tree, splice(@args, 0, 2));
+    }
+    return;
+}
+*sl = \&setl;
+*setlist = \&setl;
+
 sub setnode {
     my $tree = shift;
     my $elt = shift;
@@ -788,12 +986,16 @@ sub add {
     my $node = shift;
     my @v = @_;
     if (ref($node)) {
-        ($node, @v) = ($node->[0], @{$node->[1]});
+	if ($node->isnull) {
+	    confess("cannot add null node");
+	}
+#        ($node, @v) = ($node->[0], @{$node->[1]});
+        ($node, @v) = ($node->[0], [$node->[1]]);
     }
     if (ref($v[0]) && !ref($v[0]->[0])) {
 	@v = map { $_->[1] } @v;
     }
-    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isaNode($tree);
+    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isastag($tree);
     my ($ev, $subtree) = @$tree;
 
     my @nu_subtree = ();
@@ -837,8 +1039,14 @@ sub addnode {
 
 sub unset {
     my $tree = shift || confess;
-    my $node = shift;
-    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isaNode($tree);
+    my ($node, @path) = splitpath(shift);
+    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isastag($tree);
+
+    if (@path) {
+	$_->unset(\@path) foreach findnode($tree, $node);
+	return;
+    }
+
     my ($ev, $subtree) = @$tree;
     my @nu_tree = ();
     foreach my $st (@$subtree) {
@@ -860,7 +1068,7 @@ sub find {
     my ($node, @path) = splitpath(shift);
     my $replace = shift;
 
-    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isaNode($tree);
+    confess("problem: $tree not arr") unless (ref($tree) && ref($tree) eq "ARRAY") || isastag($tree);
 
     my @r = ();
     if (@path) {
@@ -880,9 +1088,10 @@ sub find {
                 }
             }
             return $is_nt ? Nodify($tree) : $subtree;
+#	    @r = ($is_nt ? Nodify($tree) : $subtree);
         }
         return unless ref($subtree);
-        @r = map { find($_, $node, $replace) } @$subtree;
+        push(@r, map { find($_, $node, $replace) } @$subtree);
     }
     if (wantarray) {
         return @r;
@@ -896,7 +1105,7 @@ sub findval {
     my ($node, @path) = splitpath(shift);
     my $replace = shift;
 
-    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isaNode($tree);
+    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isastag($tree);
 
     my @r = ();
     if (@path) {
@@ -929,7 +1138,7 @@ sub getdata {
     my ($node, @path) = splitpath(shift);
     my $replace = shift;
 
-    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isaNode($tree);
+    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isastag($tree);
 
     my @v = ();
     if (@path) {
@@ -961,7 +1170,7 @@ sub get {
     my $tree = shift || confess;
     my ($node, @path) = splitpath(shift);
     my $replace = shift;
-    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isaNode($tree);
+    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isastag($tree);
 
     my @v = ();
     if (@path) {
@@ -971,6 +1180,9 @@ sub get {
 
         my ($top_ev, $children) = @$tree;
         @v = ();
+	if (!ref($children)) {
+	    confess("problem with $node/$top_ev => $children");
+	}
         foreach my $child (@$children) {
             confess unless ref $child;
             my ($ev, $subtree) = @$child;
@@ -1013,7 +1225,7 @@ sub getnode {
     my ($node, @path) = splitpath(shift);
     my $replace = shift;
 
-    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isaNode($tree);
+    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isastag($tree);
 
     my @v = ();
     if (@path) {
@@ -1057,7 +1269,7 @@ sub getl {
     my @elts = @_;
     my %elth = map{$_=>1} @elts;
     my %valh = ();
-    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isaNode($tree);
+    confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isastag($tree);
     my ($top_ev, $children) = @$tree;
     my @v = ();
     foreach my $child (@$children) {
@@ -1089,6 +1301,37 @@ sub sgetdata {
 }
 *sgd = \&sgetdata;
 
+sub mapv {
+    my $tree = shift;
+    my %maph = @_;
+    foreach my $oldkey (keys %maph) {
+	my $newkey = $maph{$oldkey};
+	my @currv = get($tree, $newkey);
+	next if @currv;
+	my @v = get($tree, $oldkey);
+	set($tree, $newkey, @v);
+	unset($tree, $oldkey);
+    }
+    return;
+}
+
+sub sgetmap {
+    my $tree = shift;
+    my %maph = @_;
+    my %vh = ();
+    foreach my $oldkey (keys %maph) {
+	# if 0 is supplied, use oldkey
+	my $newkey = $maph{$oldkey} || $oldkey;
+	my @v = get($tree, $oldkey);
+	if (@v > 1) {
+	    $tree->throw("multivalued key $oldkey");
+	}
+	$vh{$newkey} = $v[0];
+    }
+    return %vh;
+}
+*sgm = \&sgetmap;
+
 sub sfindval {
     my $tree = shift;
     my @v = findval($tree, @_);
@@ -1116,31 +1359,39 @@ sub indexOn {
 }
 
 # does a relational style join
-sub njoin {
+sub ijoin {
     my $tree = shift;
     my $element = shift;      # name of element to join
     my $key = shift;          # name of join element
     my $searchstruct = shift; # structure
     my @elts = $tree->fst($element);
-    map { paste($_, $key, $searchstruct) } @elts;
+    paste($_, $key, $searchstruct)
+      foreach @elts;
+    
     return;
 }
-*nj = \&njoin;
-*j = \&njoin;
+*ij = \&ijoin;
+*j = \&ijoin;
+*nj = \&ijoin;
+*njoin = \&ijoin;
 
 sub paste {
     my $tree = shift;
     my $key = shift;
     my $searchstruct = shift;
     # use indexing?
-    my $ssidx = indexOn($searchstruct, $key);
+    my ($key1, $key2) = ($key, $key);
+    if ($key =~ /(.*)=(.*)/) {
+	($key1, $key2) = ($1, $2);
+    }
+    my $ssidx = indexOn($searchstruct, $key2);
 
     my ($evParent, $stParent) = @$tree;
     my @children = ();
     foreach my $subtree (@$stParent) {
 	my @nu = ($subtree);
 	my ($ev, $st) = @$subtree;
-	if ($ev eq $key) {
+	if ($ev eq $key1) {
 	    $tree->throw("can't join on $ev - $st is not primitive")
 	      if ref $st;
 	    my $replace = $ssidx->{$st} || [];
@@ -1187,7 +1438,7 @@ sub normalize {
     if (!$schema) {
         $schema = $tree->new(schema=>[]);
     }
-    if (!isaNode($schema)) {
+    if (!isastag($schema)) {
         if (!ref($schema)) {
             # it's a string - parse it
             # (assume sxpr)
@@ -1451,7 +1702,8 @@ sub qmatch {
     my @st = findnode($tree, $elt);
     my @match =
       grep {
-          testSubTreeMatch($_, $matchkey, $matchval);
+#          tmatch($_, $matchkey, $matchval);
+	  grep {$_ eq $matchval} $_->get($matchkey);
       } @st;
     if ($replace) {
 	map {
@@ -1539,7 +1791,7 @@ sub cmatch {
 *countSubTreeMatch = \&cmatch;
 
 
-sub where {
+sub OLDwhere {
     my $tree = shift;
     my $node = shift;
     my $testcode = shift;
@@ -1549,6 +1801,30 @@ sub where {
       grep {
           $testcode->($_);
       } @subtrees;
+    if (defined $replace) {
+        map {
+            @$_ = @$replace;
+        } @match;
+    }
+    return @match;
+}
+sub where {
+    my $tree = shift;
+    my $node = shift;
+    my $testcode = shift;
+    my $replace = shift;
+
+    my @match = ();
+    iterate($tree,
+	    sub {
+		my $stag = shift;
+		if (name($stag) eq $node) {
+		    if ($testcode->($stag)) {
+			push(@match, $stag);
+		    }
+		}
+	    });
+
     if (defined $replace) {
         map {
             @$_ = @$replace;
@@ -1596,7 +1872,7 @@ sub run {
     my @args = ();
     foreach my $p (@p) {
         if ($p->name eq 'arg') {
-            if (isaNode($p->children)) {
+            if (isastag($p->children)) {
                 die;
                 push(@args,
                      evalTree($tree,
@@ -1767,19 +2043,36 @@ sub merge {
 
 sub duplicate {
     my $tree = shift;
-    my $xml = xml($tree);
-    return xmlstr2tree($xml);
+    load_module('Data::Dumper');
+    use Data::Dumper;
+    my $nu;
+    my $d = Data::Dumper->new( [$tree], [qw($nu)] );
+    my $dump = $d->Dump;
+    eval $dump;
+    if ($@) {
+	confess $@;
+    }
+    return stagify($nu);
 }
 *d = \&duplicate;
 *clone = \&duplicate;
 
 sub isastag {
     my $node = shift;
-    return UNIVERSAL::isa($node, "Data::Stag::StagI");
+    return UNIVERSAL::isa($node, "Data::Stag::StagI") ||
+      UNIVERSAL::isa($node, "Node");
 }
 *isanode = \&isastag;
 *isa_node = \&isanode;
 *isaNode = \&isanode;
+
+sub isnull {
+    my $node = shift;
+    if (@$node) {
+	return 0;
+    }
+    return 1;
+}
 
 sub node {
     return Data::Stag::StagImpl->new(@_);
@@ -1856,7 +2149,7 @@ sub grammarparser {
 sub kids {
     my $self = shift;
     if (@_) {
-        @$self = $self->[0], map {Node($_)} @_;
+        @$self = ($self->[0], [map {Nodify($_)} @_]);
     }
     my ($name, $kids) = @$self;
     if (!ref($kids)) {
@@ -1880,9 +2173,17 @@ sub ntnodes {
     my @subnodes = $self->subnodes;
     return grep {!$_->isterminal} @subnodes;
 }
-
 *nonterminalnodes = \&ntnodes;
 *nonterminals = \&ntnodes;
+
+# terminal nodes
+sub tnodes {
+    my $self = shift;
+    my @subnodes = $self->subnodes;
+    return grep {$_->isterminal} @subnodes;
+}
+*terminalnodes = \&tnodes;
+*terminals = \&tnodes;
 
 sub element {
     my $self = shift;
@@ -1903,9 +2204,21 @@ sub data {
     return $self->[1];
 }
 
+sub rename {
+    my $tree = shift;
+    my $from = shift;
+    my $to = shift;
+    foreach (kids($tree)) {
+	if ($_->[0] eq $from) {
+	    $_->[0] = $to;
+	}
+    }
+    return;
+}
+
 sub isterminal {
     my $self = shift;
-    return !ref($self->data);
+    return !ref($self->[1]);
 }
 
 sub _min {
@@ -1926,7 +2239,16 @@ sub _max {
 sub autoschema {
     my $tree = shift;
     my $schema = _autoschema($tree);
-    return genschema($tree, undef, $tree->element, $schema);
+#    use Data::Dumper;
+#    print Dumper $schema;
+    my $nu = genschema($tree, undef, $tree->element, $schema);
+    $nu->iterate(sub{
+		     my $node = shift;
+		     if ($node->name =~ /(\S+)\.(\S+)/) {
+			 $node->name($2);
+		     }
+		 });
+    return $nu;
 }
 
 sub genschema {
@@ -1998,7 +2320,14 @@ sub _autoschema {
     #                      ? : 0 or one
     my %lcard = ();  # local cardinality
     foreach (@sn) {
+	# nonterminal nodes are uniquely defined
+	# by the node name
         my $se = element($_);
+	if (isterminal($_)) {
+	    # a terminal node is uniquely defined
+	    # by parent.node
+	    $se = "$elt.$se";
+	}
         push(@{$childh->{$elt}}, $se)
           unless $childh->{$elt} &&
             grep { $_ eq $se } @{$childh->{$elt}};
@@ -2017,37 +2346,41 @@ sub _autoschema {
                $maxcard->{$link});
     }
     foreach (grep {isterminal($_)} @sn) {
-        my $elt = element($_);
+        my $elt = $elt.'.'.element($_);
 #        push(@{$data->{$elt}}, $_->data);
         my $in = $_->data;
-        my $d = $data->{$elt} || 'int';
+        my $d = $data->{$elt} || 'INT';
         if (!$in) {
         }
-        elsif ($in =~ /^\d+$/ &&
-            ($d eq 'int')) {
-            $d = 'int';
-	    my $lin = length($in);
-	    if ($lin > 10) {
-		# too big for an int
-		# TODO: largeint?
-		$d = "varchar($lin)";
+        elsif ($in =~ /^\-?\d+$/) {  # LOOKS LIKE INT
+	    # CHANGE SIZE IF IT IS
+            if ($d eq 'INT') {
+		$d = 'INT';
+		my $lin = length($in);
+		if ($lin > 10) {
+		    # too big for an int
+		    # TODO: largeint?
+		    $d = "VARCHAR($lin)";
+		}
 	    }
         }
-        elsif ($in =~ /^\d+\.\d+$/ &&
-            ($d eq 'int' || $d eq 'float')) {
-            $d = 'float';
+        elsif ($in =~ /^\-?\d*\.\d+$/) { # LOOKS LIKE FLOAT
+	    # PROMOTE TO FLOAT IF INT
+            if ($d eq 'INT') {
+		$d = 'FLOAT';
+	    }
         }
         else {
             my $lin = length($in) || 0;
-            if ($d =~ /varchar\((\d+)\)/) {
+            if ($d =~ /VARCHAR\((\d+)\)/) {
                 if ($lin > $1) {
-                    $d = "varchar($lin)";
+                    $d = "VARCHAR($lin)";
                 }
                 else {
                 }
             }
             else {
-                $d = "varchar($lin)";
+                $d = "VARCHAR($lin)";
             }
         }
         $data->{$elt} = $d;
@@ -2087,6 +2420,8 @@ sub splitpath {
 
 sub test_eq {
     my ($ev, $node) = @_;
+    $ev = '' unless defined $ev;
+    $node = '' unless defined $node;
     return $ev eq $node || $node eq '*';
 }
 

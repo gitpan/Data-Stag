@@ -1,25 +1,37 @@
 #!/usr/local/bin/perl -w
 
+# POD docs at end
+
 use strict;
 
 use Data::Stag qw(:all);
 use Getopt::Long;
-use Data::Dumper;
+
 use FileHandle;
 
 my $exec;
 my $codefile;
 my $parser = '';
-my $writer = 'sxpr';
+my $writer = '';
+my %trap = ();
+my $datafmt;
+my $module;
+my @units;
 GetOptions("codefile|c=s"=>\$codefile,
-	   "exec|e=s"=>\$exec,
+	   "sub|s=s"=>\$exec,
+	   "trap|t=s%"=>\%trap,
            "parser|format|p=s" => \$parser,
 	   "writer|w=s"=>\$writer,
+	   "data|d=s"=>\$datafmt,
+	   "module|m=s"=>\$module,
+	   "units|u=s@"=>\@units,
+	   "help|h"=>sub {system("perldoc $0");exit 0},
 	  );
 
-if (!$codefile && !$exec) {
-    $codefile = shift @ARGV;
-    die unless $codefile;
+if (!$codefile && !$exec && !$module) {
+    $codefile = shift @ARGV if (@ARGV > 1);
+    die "you must supply -c or -m or -s, or provide codefile" 
+      unless $codefile;
 }
 my $fn = shift @ARGV;
 my $fh;
@@ -33,28 +45,61 @@ else {
 
 my $p = Data::Stag->parser(-file=>$fn, -format=>$parser);
 
-my $catch = $exec ? eval $exec : do "$codefile";
-my $meth = $exec ?  $exec : $codefile;
-if (!$catch) {
-    die "$meth did not return handler";
+my $catch = {};
+no strict;
+if ($exec) {
+    $catch = eval $exec;
+    if ($@) {
+	die $@;
+    }
 }
-if (!ref($catch) || ref($catch) ne "HASH") {
-    die("$meth must return hashref");
+if ($codefile) {
+    $catch = do "$codefile";
+    if ($@) {
+	print STDERR "\n\nstag-handle error:\n";
+	print STDERR "There was an error with the codefile \"$codefile\":\n\n";
+	die $@;
+    }
 }
-my @events = keys %$catch;
-my $inner_handler = Data::Stag->makehandler(%$catch);
+if (%trap) {
+#    
+#    die Dumper \%trap;
+    %$catch = (%$catch, %trap);
+}
+use strict;
+my @events;
+my $inner_handler;
+if ($module) {
+    $inner_handler = Data::Stag->makehandler($module);
+}
+else {
+    my $meth = $exec ?  $exec : $codefile;
+    if (!%$catch) {
+	die "method \"$meth\" did not return handler";
+    }
+    if (!ref($catch) || ref($catch) ne "HASH") {
+	die("$meth must return hashref");
+    }
+    $inner_handler = Data::Stag->makehandler(%$catch);
+    @events = keys %$catch;
+}
+if (@units) {
+    @events = @units;
+}
 my $h = Data::Stag->chainhandlers([@events],
 				 $inner_handler,
 				 $writer);
 $p->handler($h);
 $p->parse_fh($fh);
-
+if ($datafmt) {
+    print $inner_handler->stag->$datafmt();
+}
 
 __END__
 
 =head1 NAME
 
-  stag-handle.pl
+stag-handle.pl - streams a stag file through a handler into a writer
 
 =head1 SYNOPSIS
 
@@ -65,18 +110,46 @@ __END__
 will take a Stag compatible format (xml, sxpr or itext), turn the data
 into an event stream passing it through my-handler.pl
 
-cat my-handler.pl
-{
+=over ARGUMENTS
+
+=item -help|h
+
+shows this document
+
+=item -writer|w WRITER
+
+writer for final transformed tree; can be xml, sxpr or itext
+
+=item -codefile|c FILE
+
+a file containing a perlhashref containing event handlers - see below
+
+=item -sub|s PERL
+
+a perl hashref containing handlers 
+
+=item -trap|t ELEMENT=SUB
+
+=back
+
+
+
+=head1 EXAMPLES
+
+  unix> cat my-handler.pl
+  {
     person => sub {
 	my ($self, $person) = @_;
 	$person->set_fullname($person->get_firstname . ' ' .
 			   $person->get_lastname);
+        $person;
     },
     address => sub {
 	my ($self, $address) = @_;
 	# remove addresses altogether from processed file
-	$address->free;
+        return;
     },
-}
+  }
+
 
 =cut

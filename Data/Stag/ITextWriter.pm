@@ -16,17 +16,13 @@ package Data::Stag::ITextWriter;
 =cut
 
 use strict;
-use base qw(Data::Stag::Base Data::Stag::Writer);
+use base qw(Data::Stag::Writer);
 
 use vars qw($VERSION);
 $VERSION="0.03";
 
-sub init {
-    my $self = shift;
-    my ($fn) = @_;
-    $self->stack([]);
-    $self->init_writer(@_);
-    return;
+sub fmtstr {
+    return 'itext';
 }
 
 
@@ -45,16 +41,18 @@ sub indent_txt {
 sub o {
     my $self = shift;
     my @o = @_;
-    my $fh = $self->fh;
-    print $fh $self->indent_txt() . "@o"
+    $self->addtext($self->indent_txt() . "@o");
 }
 
 sub start_event {
     my $self = shift;
     my $ev = shift;
     my $stack = $self->stack;
-    my $fh = $self->fh;
-    print $fh "\n" . $self->indent_txt() . "$ev: ";
+    my $tag = "$ev: ";
+    if ($self->use_color) {
+	$tag = color('red').$ev.color('reset').':';
+    }
+    $self->addtext("\n" . $self->indent_txt() . $tag);
     push(@$stack, $ev);
 }
 sub end_event {
@@ -69,9 +67,11 @@ sub end_event {
 sub evbody {
     my $self = shift;
     my $body = shift;
-    my $fh = $self->fh;
     my $str = itextesc($body);
-    print $fh $str;
+    if ($self->use_color) {
+	$str = color('white').$str;
+    }    
+    $self->addtext($str);
     return;
 }
 
@@ -83,5 +83,11 @@ sub itextesc {
     $w =~ s/:/\\:/g;
     return $w;
 }
+
+# this should already be require'd in Writer.pm
+sub color {
+    Term::ANSIColor::color(@_);
+}
+
 
 1;

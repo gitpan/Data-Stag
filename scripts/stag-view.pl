@@ -1,23 +1,29 @@
 #!/usr/local/bin/perl -w
 
+# POD docs at end
+
 use strict;
 
 use Data::Stag qw(:all);
 use Getopt::Long;
-use Data::Dumper;
+
 use FileHandle;
 use Tk;
 use Tk::Tree;
 use Tk::Label;
 
-my $e = "";
-my @prints = ();
 my $sep = "\t";
 my $parser;
-GetOptions("element|e=s"=>\$e,
+my $help;
+GetOptions(
            "parser|format|p=s" => \$parser,
-	   "prints|p=s@"=>\@prints,
+	   "help|h"=>\$help,
 	  );
+if ($help) {
+    system("perldoc $0");
+    exit 0;
+}
+
 
 my $fn = shift @ARGV;
 my $fh;
@@ -70,7 +76,7 @@ foreach ( @list ) {
     # Add the item (in $_) with $text as the label.
     #
     
-    print "ADD $_ $text\n";
+#    print "ADD $_ $text\n";
     $text =~ s/\[\d+\]$//;
     $tree->add( $_, -text => $text );
     
@@ -78,3 +84,39 @@ foreach ( @list ) {
 
 $tree->autosetmode();
 MainLoop;
+exit 0;
+
+__END__
+
+=head1 NAME 
+
+stag-view.pl - draws an expandable Tk tree diagram showing stag data
+
+=head1 SYNOPSIS
+
+  stag-view.pl  file1.xml
+
+=head1 DESCRIPTION
+
+Draws a Tk tree, with expandable/convertable nodes
+
+=head1 ARGUMENTS
+
+=over
+
+=item -p|parser FORMAT
+
+FORMAT is one of xml, sxpr or itext
+
+xml assumed as default
+
+=back
+
+
+=head1 SEE ALSO
+
+L<Data::Stag>
+
+L<Tk>
+
+=cut

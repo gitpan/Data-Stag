@@ -1,4 +1,4 @@
-# $Id: ITextParser.pm,v 1.6 2003/04/29 22:28:59 cmungall Exp $
+# $Id: ITextParser.pm,v 1.11 2003/12/11 07:22:44 cmungall Exp $
 #
 # Copyright (C) 2002 Chris Mungall <cjm@fruitfly.org>
 #
@@ -11,7 +11,7 @@ package Data::Stag::ITextParser;
 
 =head1 NAME
 
-  ITextParser.pm     - simple wrapper for 
+  ITextParser.pm     - parses stag IText format into stag events
 
 =head1 SYNOPSIS
 
@@ -28,11 +28,14 @@ use Exporter;
 use Carp;
 use FileHandle;
 use strict;
-use XML::Parser::PerlSAX;
 use base qw(Data::Stag::BaseGenerator Exporter);
 
 use vars qw($VERSION);
 $VERSION="0.03";
+
+sub fmtstr {
+    return 'itext';
+}
 
 sub parse_fh {
     my $self = shift;
@@ -67,7 +70,7 @@ sub parse_fh {
 
         my ($indent_txt, $elt) = ($1, $2);
         my $indent = length($indent_txt);
-        if ($elt =~ /^(\w+):\s*(.*)$/s) {
+        if ($elt =~ /^([\w\-\+\?\*]+):\s*(.*)$/s) {
             $elt = $1;
             my $nu_txt = $2;
 
@@ -97,6 +100,9 @@ sub pop_to_level {
 
     # if buffered pcdata, export it
     if (defined $txt) {
+	# unescape :s
+	$txt =~ s/^\\:/:/g;
+	$txt =~ s/([^\\])\\:/$1:/g;
         $self->evbody($txt);
     }
     while (scalar(@$stack) &&

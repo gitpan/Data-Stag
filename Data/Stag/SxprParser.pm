@@ -1,4 +1,4 @@
-# $Id: SxprParser.pm,v 1.7 2003/03/29 23:33:58 cmungall Exp $
+# $Id: SxprParser.pm,v 1.11 2003/12/11 07:22:44 cmungall Exp $
 #
 # Copyright (C) 2002 Chris Mungall <cjm@fruitfly.org>
 #
@@ -11,7 +11,7 @@ package Data::Stag::SxprParser;
 
 =head1 NAME
 
-  SxprParser.pm     - simple wrapper for lisp style S-expression
+  SxprParser.pm     - parses Stag S-expression format
 
 =head1 SYNOPSIS
 
@@ -36,6 +36,10 @@ use base qw(Data::Stag::BaseGenerator Exporter);
 use vars qw($VERSION);
 $VERSION="0.03";
 
+sub fmtstr {
+    return 'sxpr';
+}
+
 sub parse_fh {
     my $self = shift;
     my $fh = shift;
@@ -45,7 +49,7 @@ sub parse_fh {
 
     my $parsing_has_started;
 
-    my $OPEN = '^\s*\((\w+)\s*';
+    my $OPEN = '^\s*\(([\w\-\*\?\+\@]+)\s*';
     my $CLOSE = '(.*)(.)\){1}';
     my $txt;
     my $in;

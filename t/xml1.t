@@ -1,4 +1,5 @@
 use lib 't';
+use lib '.';
 
 BEGIN {
     # to handle systems with no installed Test module
@@ -61,8 +62,9 @@ ok(@p==2);
 #
 
 my $na = stag_from("xml", "t/z.xml");
-my $h = stag_hash($na);
-print Dumper $h;
+my %h = stag_hash($na);
+print Dumper \%h;
+
 print stag_xml($tree);
 
 # test replacement

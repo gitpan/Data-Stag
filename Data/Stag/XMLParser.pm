@@ -1,4 +1,4 @@
-# $Id: XMLParser.pm,v 1.5 2002/12/20 22:30:06 cmungall Exp $
+# $Id: XMLParser.pm,v 1.9 2003/12/11 07:22:44 cmungall Exp $
 #
 # Copyright (C) 2002 Chris Mungall <cjm@fruitfly.org>
 #
@@ -11,7 +11,7 @@ package Data::Stag::XMLParser;
 
 =head1 NAME
 
-  XMLParser.pm     - simple wrapper for 
+  XMLParser.pm     - parses XML files into stag events
 
 =head1 SYNOPSIS
 
@@ -29,10 +29,35 @@ use Carp;
 use FileHandle;
 use strict;
 use XML::Parser::PerlSAX;
+use Data::Stag::Util qw(rearrange);
 use base qw(Data::Stag::BaseGenerator Exporter);
 
 use vars qw($VERSION);
 $VERSION="0.03";
+
+sub fmtstr {
+    return 'xml';
+}
+
+# OVERRIDE
+sub parse {
+    my $self = shift;
+    my ($file, $str, $fh) = 
+      rearrange([qw(file str fh)], @_);
+    if ($str) {
+	# problem with IO::String in perl5.6.1
+	
+	my $parser = XML::Parser::PerlSAX->new();
+	my $source = {String => $str};
+	my %parser_args = (Source => $source,
+			   Handler => $self->handler);
+	
+	$parser->parse(%parser_args);
+    }
+    else {
+	$self->SUPER::parse(-file=>$file, -str=>$str, -fh=>$fh);
+    }
+}
 
 sub parse_fh {
     my $self = shift;

@@ -26,21 +26,35 @@ my %h =
        my ($self, $stag) = @_;
        my $species_h = $self->{species_h};
        # cache by primary key:
-       $species_h->{$stag->get_tax_id} = $stag;
-       0;
+       my $clone = $stag->clone;
+       $species_h->{$stag->get_tax_id} = $clone;
+       $stag;
+   },
+   cytological => sub {
+       my ($self, $stag) = @_;
+       ($stag, [foo=>1]);
    },
    gene => sub {
        my ($self, $stag) = @_;
        my $species_h = $self->{species_h};
        my $gene_h = $self->{gene_h};
+       my $tax_id = $stag->get_tax_id;
        # add new node based on foreign key key:
-       $stag->setnode_species($species_h->{$stag->get_tax_id});
+       my $species = $species_h->{$tax_id};
+       # check
+       my $db = $self->up_to('db');
+       my @sp2 = $db->qmatch('species', (tax_id=>$tax_id));
+       if (@sp2 != 1) {
+	   print $db->xml;
+	   die "no species matching $tax_id";
+       }
+       $stag->setnode_species($species);
        # cache by primary key:
        # [gene symbols do not guarantee uniqueness, but this is
        #  a toy example, OK?]
        printf "CACHING %s\n", $stag->get_symbol;
        $gene_h->{$stag->get_symbol} = $stag;
-       0;
+       $stag;
    },
    pair => sub {
        my ($self, $stag) = @_;
@@ -56,7 +70,7 @@ my %h =
                $stag->add_comment("Dunno what symbol $_ is");
            }
        }
-       0;
+       $stag;
    },
   );
 my $handler =
@@ -65,10 +79,14 @@ $handler->{species_h} = {};
 $handler->{gene_h} = {};
 
 $stag->parse(-file=>$fn, -handler=>$handler);
+
 print $stag->xml;
+print "remaining tree:\n";
+print $handler->stag->sxpr;
 
 my ($gene_set) = $stag->fn("gene_set");
-my ($species_set) = $stag->fn("species_set");
+my ($ss) = $stag->fn("similarity_set");
+print $ss->xml;
 print $gene_set->xml;
   
 my @g = $gene_set->where("gene",
@@ -87,10 +105,8 @@ ok(grep { $_->tm("binomial", "Homo sapiens") } @g);
                          $g->get("symbol") =~ /^H/ &&
                            $g->findval("common_name") ne ('human')});
 ok(@g == 1);
-ok(grep { $_->tm("binomial", "Mus musculus") } @g);
+ok(grep {print $_->sxpr; $_->tm("binomial", "Mus musculus") } @g);
 
-my ($ss) = $stag->fn("similarity_set");
-print $ss->xml;
 
 sub q_gene_by_phenotype {
     my $gs = shift;

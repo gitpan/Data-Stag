@@ -25,22 +25,13 @@ all other elements treated as functions with list arguments
 =cut
 
 use strict;
-use base qw(Data::Stag::Base Data::Stag::Writer);
+use base qw(Data::Stag::Writer Data::Stag::Writer);
 
 use vars qw($VERSION);
 $VERSION="0.03";
 
-sub init {
-    my $self = shift;
-    $self->init_writer(@_);
-    $self->stack([]);
-    return;
-}
-
-sub stack {
-    my $self = shift;
-    $self->{_stack} = shift if @_;
-    return $self->{_stack};
+sub fmtstr {
+    return 'sxpr';
 }
 
 sub indent_txt {
@@ -86,8 +77,17 @@ sub o {
 sub start_event {
     my $self = shift;
     my $ev = shift;
+    if (!defined($ev)) {
+	$ev = '';
+    }
     my $stack = $self->stack;
-    $self->o("($ev");
+    if ($self->use_color) {
+	$self->o(color('white'));
+	$self->o('('.color('red').$ev);
+    }
+    else {
+	$self->o("($ev");
+    }
     push(@$stack, $ev);
 }
 sub end_event {
@@ -98,7 +98,13 @@ sub end_event {
     if ($ev && $popped ne $ev) {
         warn("uh oh; $ev ne $popped");
     }
-    $self->o(")");
+    if ($self->use_color) {
+#	$self->o(color('white'));
+	$self->o(')');
+    }
+    else {
+	$self->o(')');
+    }
     if (!@$stack) {
 	$self->o("\n");
     }
@@ -107,17 +113,41 @@ sub end_event {
 sub evbody {
     my $self = shift;
     my $body = shift;
-    $self->o(lispesc($body));
+    my $str;
+    if ($self->use_color) {
+	if (!defined($body)) {
+	    $str = color('white').'""';
+	}
+	elsif ($body eq '0') {
+	    $str = color('white').'"'.color('green').'0'.color('white').'"';
+	}
+	else {
+	    $body =~ s/\(/\\\(/g;
+	    $body =~ s/\)/\\\)/g;
+	    $body =~ s/\"/\\\"/g;
+	    $str = color('white').'"'.color('green').$body.color('white').'"';
+	}
+    }
+    else {
+	$str = lispesc($body);
+    }
+    $self->o($str);
     return;
 }
 
 sub lispesc {
     my $w = shift;
-    return '""' unless $w;
+    return '""' unless defined $w;
+    return '"0"' if $w eq '0';
     $w =~ s/\(/\\\(/g;
     $w =~ s/\)/\\\)/g;
     $w =~ s/\"/\\\"/g;
     return '"'.$w.'"';
 }
+
+sub color {
+    Term::ANSIColor::color(@_);
+}
+
 
 1;

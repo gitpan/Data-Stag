@@ -2,18 +2,15 @@
 
 =head1 NAME 
 
-stag-mogrify.pl  - mangle stag files
+stag-merge.pl
 
 =head1 SYNOPSIS
 
-  stag-mogrify.pl  -w itext file1.xml file2.xml
+  stag-merge.pl  -xml file1.xml file2.xml
 
 =head1 DESCRIPTION
 
 script wrapper for the Data::Stag modules
-
-feeds in files into a parser object that generates nestarray events,
-and feeds the events into a handler/writer class
 
 =head1 ARGUMENTS
 
@@ -37,23 +34,19 @@ my $debug;
 my $help;
 my @interpose = ();
 my @regexps = ();
-my @delete = ();
 my @add = ();
 my $lc;
-my $merge;
 GetOptions(
            "help|h"=>\$help,
            "parser|format|p=s" => \$parser,
            "handler|writer|w=s" => \$handler,
            "interpose|i=s@" => \@interpose,
            "add|a=s@" => \@add,
-           "delete|d=s@" => \@delete,
 	   "regexp|re|r=s@"=> \@regexps,
            "xml"=>\$toxml,
            "perl"=>\$toperl,
            "lc"=>\$lc,
            "debug"=>\$debug,
-	   "merge=s"=>\$merge,
           );
 if ($help) {
     system("perldoc $0");
@@ -62,7 +55,6 @@ if ($help) {
 
 
 my @files = @ARGV;
-my @mergeset = ();
 foreach my $fn (@files) {
 
     my $tree = 
@@ -88,9 +80,6 @@ foreach my $fn (@files) {
 			   $s->element($e) unless $e eq $orig;
 			   return
 		       });
-    }
-    foreach (@delete) {
-	$tree->remove($_);
     }
     foreach (@add) {
 	$tree->where($_,
@@ -135,26 +124,11 @@ foreach my $fn (@files) {
 	}
     }
 
-    if ($merge) {
-	push(@mergeset, $tree);
+    if ($toxml) {
+        print $tree->xml;
     }
     else {
-	if ($toxml) {
-	    print $tree->xml;
-	}
-	else {
-	    my $W = Data::Stag->getformathandler($handler);
-	    $W->fh(\*STDOUT);
-	    $tree->sax($W);
-	}
+        $tree->generate(-fmt=>$handler);
     }
 }
-if ($merge) {
-    my $tree = Data::Stag->new($merge=>[@mergeset]);
-	if ($toxml) {
-	    print $tree->xml;
-	}
-	else {
-	    $tree->generate(-fmt=>$handler);
-	}
-}
+

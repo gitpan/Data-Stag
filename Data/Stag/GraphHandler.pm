@@ -1,8 +1,8 @@
-package Data::Stag::GraphWriter;
+package Data::Stag::GraphHandler;
 
 =head1 NAME
 
-  Data::Stag::GraphWriter
+  Data::Stag::GraphHandler
 
 =head1 SYNOPSIS
 

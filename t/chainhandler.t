@@ -17,12 +17,13 @@ my %catch =
     person => sub {
 	my ($self, $person) = @_;
 	$person->set_fullname($person->get_firstname . ' ' .
-			   $person->get_lastname);
+			      $person->get_lastname);
+	$person;
     },
     address => sub {
 	my ($self, $address) = @_;
 	# remove addresses altogether from processed file
-	$address->free;
+#	$address->free;
 	return;
     },
   );
@@ -30,7 +31,11 @@ my %catch =
 my $ih = Data::Stag->makehandler(
 				 %catch
 				);
+#Data::Stag->parse(-file=>$fn, -handler=>$ih);
+#print $ih->stag->sxpr;
+#$ih->stag->free;
 
+print "chainhandler...\n";
 my $fh = FileHandle->new(">t/data/person-processed.el") || die;
 my $w = Data::Stag->getformathandler('sxpr');
 $w->fh($fh);
@@ -44,6 +49,7 @@ my $ch = Data::Stag->chainhandlers(
 
 Data::Stag->parse(-file=>$fn, -handler=>$ch);
 $w->fh->close;
+print "checking..\n";
 my $pp = Data::Stag->parse("t/data/person-processed.el");
 my @full = $pp->find("fullname");
 ok("@full" eq "joe bloggs clark kent");

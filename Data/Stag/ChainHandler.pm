@@ -117,25 +117,6 @@ sub event {
     }
 }
 
-sub zzzchain_event {
-    my $self = shift;
-    my $type = shift;
-    my $ev = shift;
-    my @args = @_;
-    my $stack = $self->elt_stack;
-    push(@$stack, $ev);
-
-    my $sh = $self->subhandlers;
-    if (grep {$self->is_blocked($_)} @$stack) {
-        $sh->[0]->event($ev, @args);
-    }
-    else {
-        foreach (@$sh) {
-            $_->event($ev, @args);
-        }
-    }
-}
-
 sub end_event {
     my $self = shift;
     my $ev = shift;
@@ -154,10 +135,14 @@ sub end_event {
 	# not inside another blocked event
         my ($h, @rest) = @$sh;
 
-        $h->end_event($ev);
-        foreach (@rest) {
-            my $tree = $h->tree;
-            $_->event(@$tree);
+        my @R = $h->end_event($ev);
+        foreach my $handler (@rest) {
+#            my $tree = $h->tree;
+            #$handler->event(@$tree) if $tree->[0];
+	    if (@R) {
+		$handler->event(@$_) foreach @R;
+		$_->free foreach @R;
+	    }
         }
 #        use Data::Dumper;
 #        print Dumper $node->[-1];
