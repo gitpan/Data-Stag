@@ -103,12 +103,11 @@ use base qw(Data::Stag::BaseHandler);
 use Data::Stag::Util qw(rearrange);
 
 use vars qw($VERSION);
-$VERSION="0.06";
+$VERSION="0.07";
 
 sub init {
     my $self = shift;
     $self->init_writer(@_);
-    $self->stack([]);
     $self->SUPER::init();
     return;
 }

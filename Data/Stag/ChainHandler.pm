@@ -20,7 +20,7 @@ use strict;
 use base qw(Data::Stag::Base Data::Stag::Writer);
 
 use vars qw($VERSION);
-$VERSION="0.06";
+$VERSION="0.07";
 
 sub init {
     my $self = shift;
@@ -98,25 +98,6 @@ sub evbody {
     return;
 }
 
-sub event {
-    my $self = shift;
-    my $ev = shift;
-    my @args = @_;
-    my $stack = $self->elt_stack;
-
-    my $sh = $self->subhandlers;
-
-    my $is_blocked = grep {$self->is_blocked($_)} @$stack;
-    if ($is_blocked) {
-        $sh->[0]->event($ev, @args);
-    }
-    else {
-        foreach (@$sh) {
-            $_->event($ev, @args);
-        }
-    }
-}
-
 sub end_event {
     my $self = shift;
     my $ev = shift;
@@ -141,7 +122,7 @@ sub end_event {
             #$handler->event(@$tree) if $tree->[0];
 	    if (@R) {
 		$handler->event(@$_) foreach @R;
-		$_->free foreach @R;
+		@$_ = () foreach @R;
 	    }
         }
 #        use Data::Dumper;

@@ -1,4 +1,4 @@
-# $Id: Stag.pm,v 1.31 2004/06/10 18:30:52 cmungall Exp $
+# $Id: Stag.pm,v 1.34 2004/10/29 17:03:46 cmungall Exp $
 # -------------------------------------------------------
 #
 # Copyright (C) 2004 Chris Mungall <cjm@fruitfly.org>
@@ -22,7 +22,7 @@ use Data::Stag::Base;
 use XML::Parser::PerlSAX;
 
 use vars qw($VERSION);
-$VERSION="0.06";
+$VERSION="0.07";
 
 @AUTOMETHODS = qw(
                   new
@@ -49,6 +49,8 @@ $VERSION="0.06";
                   k kids children
                   ak addkid addchild
                   subnodes
+                  tnodes
+                  ntnodes
                   isterminal
                   j ij ijoin nj njoin
                   paste
@@ -1019,7 +1021,10 @@ another handler - for example, and xml handler
   $chainh = Data::Stag->chainhandler(['a', 'b'], $processor, 'xml');
   $stag = Data::Stag->parse(-str=>"(...)", -handler=>$chainh)
 
-chains together two handlers (see also the script B<stag-handle.pl>)
+If the inner handler has a method CONSUMES(), this method will
+determine the blocked events if none are specified.
+
+see also the script B<stag-handle.pl>
 
 
 =head2  RECURSIVE SEARCHING
@@ -1450,7 +1455,27 @@ adds a new child node to a non-terminal node, after all the existing child nodes
       Return: ANY[]
      Example: @nodes = $person->subnodes
 
-returns the non-terminal data value(s) of the current node;
+returns the child nodes; returns empty list if this is a terminal node
+
+=head3 ntnodes
+
+       Title: ntnodes
+
+        Args: 
+      Return: ANY[]
+     Example: @nodes = $person->ntnodes
+
+returns all non-terminal children of current node
+
+=head3 tnodes
+
+       Title: tnodes
+
+        Args: 
+      Return: ANY[]
+     Example: @nodes = $person->tnodes
+
+returns all terminal children of current node
 
   
 
