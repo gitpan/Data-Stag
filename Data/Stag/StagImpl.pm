@@ -1,4 +1,4 @@
-# $Id: StagImpl.pm,v 1.54 2004/12/21 02:26:26 cmungall Exp $
+# $Id: StagImpl.pm,v 1.58 2005/04/28 17:17:18 cmungall Exp $
 #
 # Author: Chris Mungall <cjm@fruitfly.org>
 #
@@ -30,7 +30,7 @@ use Data::Stag::Util qw(rearrange);
 use base qw(Data::Stag::StagI);
 
 use vars qw($VERSION);
-$VERSION="0.08";
+$VERSION="0.09";
 
 
 sub new {
@@ -152,6 +152,15 @@ sub parser {
 	if ($fn =~ /\.xml$/) {
             $fmt = "xml";
         }
+        elsif ($fn =~ /\.indent$/) {
+            $fmt = "indent";
+        }
+        elsif ($fn =~ /\.ind$/) {
+            $fmt = "indent";
+        }
+        elsif ($fn =~ /\.xtc$/) {
+            $fmt = "indent";
+        }
         elsif ($fn =~ /\.ite?xt$/) {
             $fmt = "itext";
         }
@@ -170,7 +179,8 @@ sub parser {
         else {
             # default to xml
 	     if (!$str && $fn) {
-		 my $fh = FileHandle->new($fn);
+		 my $fh = FileHandle->new($fn) || 
+                   confess("no such file $fn");
 		 # get the first line
 		 $str = <$fh>;
 		 chomp $str;
@@ -196,11 +206,14 @@ sub parser {
         elsif ($str =~ /^\s*\</) {
             $fmt = "xml";
         }
-        elsif ($str =~ /^\s*\w+\:/) {
+        elsif ($str =~ /^\s*\w+\:\s/) {
             $fmt = "itext";
         }
         elsif ($str =~ /^\s*\#/) {
-            $fmt = "itext";
+            $fmt = "indent";
+        }
+        elsif ($str =~ /^\w+/) {
+            $fmt = "indent";
         }
         else {
         }
@@ -217,6 +230,9 @@ sub parser {
     }
     elsif ($fmt eq "xml") {
         $parser = "Data::Stag::XMLParser";
+    }
+    elsif ($fmt eq "indent") {
+        $parser = "Data::Stag::IndentParser";
     }
     elsif ($fmt eq "itext") {
         $parser = "Data::Stag::ITextParser";
@@ -319,6 +335,9 @@ sub _gethandlerobj {
         elsif ($fn =~ /\.ite?xt$/) {
             $fmt = "itext";
         }
+        elsif ($fn =~ /\.ind/) {
+            $fmt = "indent";
+        }
         else {
         }
     }
@@ -332,8 +351,17 @@ sub _gethandlerobj {
     elsif ($fmt =~ /itext/i) {
         $writer = "Data::Stag::ITextWriter";
     }
+    elsif ($fmt =~ /indent/i) {
+        $writer = "Data::Stag::IndentWriter";
+    }
     elsif ($fmt =~ /sxpr/i) {
         $writer = "Data::Stag::SxprWriter";
+    }
+    elsif ($fmt =~ /yaml/i) {
+        $writer = "Data::Stag::YAMLWriter";
+    }
+    elsif ($fmt =~ /perl/i) {
+        $writer = "Data::Stag::PerlWriter";
     }
     elsif ($fmt =~ /dtd/i) {
         $writer = "Data::Stag::DTDWriter";
@@ -651,6 +679,12 @@ sub itext {
     generate($tree, $fn, 'itext', @_);
 }
 
+sub indent {
+    my $tree = shift;
+    my $fn = shift;
+    generate($tree, $fn, 'indent', @_);
+}
+
 sub as {
     my $tree = shift;
     my $fmt = shift;
@@ -848,7 +882,12 @@ sub addkid {
     my $newtree = shift;
     confess("problem: $tree not arr") unless ref($tree) && ref($tree) eq "ARRAY" || isastag($tree);
     my ($ev, $subtree) = @$tree;
-    push(@$subtree, $newtree);
+    if (ref($newtree) && $newtree->[0] eq '@') {
+        unshift(@$subtree, $newtree);
+    }
+    else {
+        push(@$subtree, $newtree);
+    }
     $newtree;
 }
 *addChildTree = \&addkid;
@@ -978,7 +1017,7 @@ sub set {
     # place at the end if not already present
     if (!$is_set) {
         map {
-            addChildTree($tree, [$node=>$_]);
+            addkid($tree, [$node=>$_]);
         } @replace;
     }
     else {
