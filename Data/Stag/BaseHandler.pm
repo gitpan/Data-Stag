@@ -1,4 +1,4 @@
-# $Id: BaseHandler.pm,v 1.29 2004/12/21 02:26:25 cmungall Exp $
+# $Id: BaseHandler.pm,v 1.33 2005/12/16 17:42:44 cmungall Exp $
 #
 # This  module is maintained by Chris Mungall <cjm@fruitfly.org>
 
@@ -269,10 +269,12 @@ use Carp;
 use Data::Stag;
 
 use vars qw($VERSION);
-$VERSION="0.09";
+$VERSION="0.10";
 
 sub EMITS    { () }
 sub CONSUMES { () }
+sub REPLACE { () }
+sub SKIP { () }
 
 sub tree {
     my $self = shift;
@@ -336,6 +338,11 @@ sub err_event {
     }
     $self->errhandler->event(@_);
     return;
+}
+
+sub throw {
+    my $self = shift;
+    confess("@_");
 }
 
 sub err {
@@ -445,6 +452,13 @@ sub perlify {
 sub start_event {
     my $self = shift;
     my $ev = shift;
+    if (grep {$ev eq $_} $self->SKIP) {
+        return;
+    }
+    my %REPLACE = $self->REPLACE;
+    if (%REPLACE) {
+        $ev = $REPLACE{$ev} || $ev;
+    }
     my $m = 's_'.$ev;
     $m =~ tr/\-\:/_/;
 
@@ -515,6 +529,14 @@ sub up_to {
 sub end_event {
     my $self = shift;
     my $ev = shift || '';
+
+    if (grep {$ev eq $_} $self->SKIP) {
+        return;
+    }
+    my %REPLACE = $self->REPLACE;
+    if (%REPLACE) {
+        $ev = $REPLACE{$ev} || $ev;
+    }
 
     my $stack = $self->{_stack};
     pop(@$stack);

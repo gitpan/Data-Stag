@@ -20,7 +20,7 @@ use strict;
 use base qw(Data::Stag::Base Data::Stag::Writer);
 
 use vars qw($VERSION);
-$VERSION="0.09";
+$VERSION="0.10";
 
 sub init {
     my $self = shift;
@@ -56,6 +56,9 @@ sub blocked_event_h {
 sub is_blocked {
     my $self = shift;
     my $e = shift;
+    if (!$e) {
+        $self->throw("must pass arg to is_blocked");
+    }
     my $is = $self->blocked_event_h->{$e};
     return $is;
 }
@@ -103,13 +106,17 @@ sub end_event {
     my $ev = shift;
 
     my $stack = $self->elt_stack;
-    pop @$stack;
+    $ev = pop @$stack;
+    if (!$ev) {
+        $self->throw("no event name on stack");
+    }
 
     my $sh = $self->subhandlers;
 
-    my $is_blocked = grep {$self->is_blocked($_)} @$stack;
+
+    my $inside_blocked = grep {$self->is_blocked($_)} @$stack;
     if ($self->is_blocked($ev) &&
-	!$is_blocked) {
+	!$inside_blocked) {
 
 	# condition:
 	# end of a blocked event, and we are 
@@ -118,20 +125,13 @@ sub end_event {
 
         my @R = $h->end_event($ev);
         foreach my $handler (@rest) {
-#            my $tree = $h->tree;
-            #$handler->event(@$tree) if $tree->[0];
 	    if (@R) {
 		$handler->event(@$_) foreach @R;
 		@$_ = () foreach @R;
 	    }
         }
-#        use Data::Dumper;
-#        print Dumper $node->[-1];
-#        die;
-#        @$topnode = ();
         my $tree = $h->tree;
         $tree->free;
-#        $h->tree([]);
     }
     else {
 

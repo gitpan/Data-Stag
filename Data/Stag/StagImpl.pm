@@ -1,4 +1,4 @@
-# $Id: StagImpl.pm,v 1.58 2005/04/28 17:17:18 cmungall Exp $
+# $Id: StagImpl.pm,v 1.63 2005/12/16 17:42:44 cmungall Exp $
 #
 # Author: Chris Mungall <cjm@fruitfly.org>
 #
@@ -30,7 +30,7 @@ use Data::Stag::Util qw(rearrange);
 use base qw(Data::Stag::StagI);
 
 use vars qw($VERSION);
-$VERSION="0.09";
+$VERSION="0.10";
 
 
 sub new {
@@ -421,8 +421,8 @@ sub write {
 sub makexslhandler {
     my $tree = shift;
     my $xslt_file = shift;
-    load_module("Data::Stag::XSLHandler");
-    my $handler = Data::Stag::XSLHandler->new;
+    load_module("Data::Stag::XSLTHandler");
+    my $handler = Data::Stag::XSLTHandler->new;
     $handler->xslt_file($xslt_file);
     return $handler;
 }
@@ -758,14 +758,14 @@ sub _tree2sax {
 }
 
 sub xslt {
-    my $xsltstr = xsltstr(@_);
-    return parse([], 
-                 -str=>$xsltstr,
-                 -format=>'xml');
+    my $tree = shift;
+    my $xsltstr = xsltstr($tree,@_);
+    return parsestr($tree,
+                    -str=>$xsltstr,
+                    -format=>'xml');
 }
 
 sub xsltstr {
-    my $tree = shift;
     my $stag = shift;
     my $xslt_file = shift;
     
@@ -779,7 +779,7 @@ sub xsltstr {
     my $stylesheet = $xslt->parse_stylesheet($styledoc);
 
     my $results = $stylesheet->transform($source);
-    return $results;
+    return $results->toString;
 }
 
 
@@ -1058,12 +1058,14 @@ sub free {
 sub add {
     my $tree = shift || confess;
     my $node = shift;
-    my @v = @_;
+    # usage1: stag_add($tree, $name, @nodes)
+    my @v = @_; # nodes to be added
     if (ref($node)) {
+        # usage2: stag_add($tree, $node)
 	if ($node->isnull) {
 	    confess("cannot add null node");
 	}
-#        ($node, @v) = ($node->[0], @{$node->[1]});
+        # split node into name and data
         ($node, @v) = ($node->[0], [$node->[1]]);
     }
     if (ref($v[0]) && !ref($v[0]->[0])) {
@@ -1079,7 +1081,8 @@ sub add {
 	my $next_st = $subtree->[$i+1];
         my ($ev, $subtree) = @$st;
 	push(@nu_subtree, $st);
-        if (test_eq($ev, $node) &&
+        if (!$has_been_set &&
+            test_eq($ev, $node) &&
 	    (!$next_st ||
 	     $next_st->[0] ne $ev)) {
 	    push(@nu_subtree, 
@@ -2570,7 +2573,7 @@ sub AUTOLOAD {
 
 sub splitpath {
     my $node = shift;
-    if (ref($node)) {
+    if (ref($node) && ref($node) eq 'ARRAY') {
         @$node;
     }
     elsif ($node =~ /\//) {
