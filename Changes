@@ -88,4 +88,13 @@ Version 0.10
 
 2005-11-01      - changed xslt method behaviour, returns string
 
+2007-07-11      - added maptree
 
+Version 0.11
+============
+
+2007-10-11      - modified maptree; return arrays
+
+2008-04-28      - removed gif from distribution
+
+2008-06-03      - removed warnings from ITextWriter (thanks Heikki!)
