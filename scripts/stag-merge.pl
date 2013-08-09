@@ -2,7 +2,7 @@
 
 =head1 NAME 
 
-stag-merge.pl
+stag-merge.pl - script wrapper for the Data::Stag modules
 
 =head1 SYNOPSIS
 

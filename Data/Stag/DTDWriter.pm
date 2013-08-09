@@ -2,7 +2,7 @@ package Data::Stag::DTDWriter;
 
 =head1 NAME
 
-  Data::Stag::DTDWriter
+  Data::Stag::DTDWriter - DTD Writer
 
 =head1 SYNOPSIS
 
@@ -24,7 +24,7 @@ use strict;
 use base qw(Data::Stag::Writer);
 
 use vars qw($VERSION);
-$VERSION="0.11";
+$VERSION="0.13";
 
 sub end_stag {
     my $self = shift;

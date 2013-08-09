@@ -2,7 +2,7 @@ package Data::Stag::Arr2HTML;
 
 =head1 NAME
 
-  Data::Stag::Arr2HTML
+  Data::Stag::Arr2HTML - Array to HTML handler
 
 =head1 SYNOPSIS
 
@@ -19,7 +19,7 @@ use strict;
 use base qw(Data::Stag::Base);
 
 use vars qw($VERSION);
-$VERSION="0.11";
+$VERSION="0.13";
 
 sub start_event {
     my $self = shift;

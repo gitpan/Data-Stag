@@ -2,7 +2,7 @@ package Data::Stag::XMLWriter;
 
 =head1 NAME
 
-  Data::Stag::XMLWriter
+  Data::Stag::XMLWriter - writes stag events into XML files
 
 =head1 SYNOPSIS
 
@@ -20,7 +20,7 @@ use base qw(Data::Stag::Writer);
 use Data::Stag::Util qw(rearrange);
 
 use vars qw($VERSION);
-$VERSION="0.11";
+$VERSION="0.13";
 
 sub unclosed {
     my $self = shift;

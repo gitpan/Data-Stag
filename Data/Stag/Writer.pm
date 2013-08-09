@@ -2,7 +2,7 @@ package Data::Stag::Writer;
 
 =head1 NAME
 
-  Data::Stag::Writer
+  Data::Stag::Writer - base class for all Writers
 
 =head1 SYNOPSIS
 
@@ -103,7 +103,7 @@ use base qw(Data::Stag::BaseHandler);
 use Data::Stag::Util qw(rearrange);
 
 use vars qw($VERSION);
-$VERSION="0.11";
+$VERSION="0.13";
 
 sub init {
     my $self = shift;

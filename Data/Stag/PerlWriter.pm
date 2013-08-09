@@ -2,7 +2,7 @@ package Data::Stag::PerlWriter;
 
 =head1 NAME
 
-  Data::Stag::PerlWriter
+  Data::Stag::PerlWriter - writes stag events into perl POD documentation
 
 =head1 SYNOPSIS
 
@@ -20,7 +20,7 @@ use strict;
 use base qw(Data::Stag::Writer Data::Stag::Writer);
 
 use vars qw($VERSION);
-$VERSION="0.11";
+$VERSION="0.13";
 
 sub fmtstr {
     return 'perl';

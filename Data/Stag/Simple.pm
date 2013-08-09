@@ -2,7 +2,7 @@ package Data::Stag::Simple;
 
 =head1 NAME
 
-  Data::Stag::Simple
+  Data::Stag::Simple - Simple
 
 =head1 SYNOPSIS
 
@@ -19,7 +19,7 @@ use strict;
 use base qw(Data::Stag::Base);
 
 use vars qw($VERSION);
-$VERSION="0.11";
+$VERSION="0.13";
 
 
 sub start_event { shift;print "OPEN :$_[0]\n"} 

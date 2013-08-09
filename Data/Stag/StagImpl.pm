@@ -1,4 +1,4 @@
-# $Id: StagImpl.pm,v 1.66 2008/06/03 17:31:15 cmungall Exp $
+# $Id: StagImpl.pm,v 1.67 2008/06/05 06:17:51 cmungall Exp $
 #
 # Author: Chris Mungall <cjm@fruitfly.org>
 #
@@ -8,7 +8,7 @@ package Data::Stag::StagImpl;
 
 =head1 NAME
 
-  Data::Stag::StagImpl
+  Data::Stag::StagImpl - default implementation for Data::Stag
 
 =head1 SYNOPSIS
 
@@ -30,7 +30,7 @@ use Data::Stag::Util qw(rearrange);
 use base qw(Data::Stag::StagI);
 
 use vars qw($VERSION);
-$VERSION="0.11";
+$VERSION="0.13";
 
 
 sub new {
@@ -362,6 +362,9 @@ sub _gethandlerobj {
     }
     elsif ($fmt =~ /perl/i) {
         $writer = "Data::Stag::PerlWriter";
+    }
+    elsif ($fmt =~ /json/i) {
+        $writer = "Data::Stag::JSONWriter";
     }
     elsif ($fmt =~ /dtd/i) {
         $writer = "Data::Stag::DTDWriter";

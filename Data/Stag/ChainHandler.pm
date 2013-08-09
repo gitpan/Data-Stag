@@ -2,7 +2,7 @@ package Data::Stag::ChainHandler;
 
 =head1 NAME
 
-  Data::Stag::ChainHandler
+  Data::Stag::ChainHandler - Chain Handler
 
 =head1 SYNOPSIS
 
@@ -20,7 +20,7 @@ use strict;
 use base qw(Data::Stag::Base Data::Stag::Writer);
 
 use vars qw($VERSION);
-$VERSION="0.11";
+$VERSION="0.13";
 
 sub init {
     my $self = shift;

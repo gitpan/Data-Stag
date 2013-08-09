@@ -2,7 +2,7 @@
 ;;
 ;; ~/lib/emacs/jhg-lisp/itext-mode.el ---
 ;;
-;; $Id: itext-mode.el,v 1.1.1.1 2002/12/03 19:18:06 cmungall Exp $
+;; $Id: itext-mode.el,v 1.1 2002/12/03 19:18:06 cmungall Exp $
 ;;
 ;; Author:  harley@bcm.tmc.edu
 ;; URL:     http://www.hgsc.bcm.tmc.edu/~harley/elisp/itext-mode.el

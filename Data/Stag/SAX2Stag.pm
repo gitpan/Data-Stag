@@ -2,7 +2,7 @@ package Data::Stag::SAX2Stag;
 
 =head1 NAME
 
-  Data::Stag::SAX2Stag
+  Data::Stag::SAX2Stag - converts SAX events into Stag events
 
 =head1 SYNOPSIS
 
@@ -24,7 +24,7 @@ use strict;
 use base qw(Data::Stag::Base);
 
 use vars qw($VERSION);
-$VERSION="0.11";
+$VERSION="0.13";
 
 my (%mail_args, $current_element, $message_count, $sent_count);
 
