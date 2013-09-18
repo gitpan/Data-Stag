@@ -50,7 +50,7 @@ use MLDBM qw(DB_File Storable);
 use Fcntl;
 
 use vars qw($VERSION);
-$VERSION="0.13";
+$VERSION="0.14";
 
 sub init {
     my $self = shift;

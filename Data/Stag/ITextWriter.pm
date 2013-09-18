@@ -19,7 +19,7 @@ use strict;
 use base qw(Data::Stag::Writer);
 
 use vars qw($VERSION);
-$VERSION="0.13";
+$VERSION="0.14";
 
 sub fmtstr {
     return 'itext';

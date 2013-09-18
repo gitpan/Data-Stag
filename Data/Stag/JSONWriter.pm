@@ -21,7 +21,7 @@ use Data::Stag::Util qw(rearrange);
 use JSON;
 
 use vars qw($VERSION);
-$VERSION="0.13";
+$VERSION="0.14";
 
 sub fmtstr {
     return 'json';

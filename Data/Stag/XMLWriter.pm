@@ -20,7 +20,7 @@ use base qw(Data::Stag::Writer);
 use Data::Stag::Util qw(rearrange);
 
 use vars qw($VERSION);
-$VERSION="0.13";
+$VERSION="0.14";
 
 sub unclosed {
     my $self = shift;

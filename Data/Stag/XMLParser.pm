@@ -33,7 +33,7 @@ use Data::Stag::Util qw(rearrange);
 use base qw(Data::Stag::BaseGenerator Exporter);
 
 use vars qw($VERSION);
-$VERSION="0.13";
+$VERSION="0.14";
 
 sub fmtstr {
     return 'xml';
